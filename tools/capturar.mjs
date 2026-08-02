@@ -70,6 +70,16 @@ const poseCamara = opcion('camara', null);
 const semilla = opcion('semilla', null);
 // Puerto propio por invocación: permite que varias revisiones capturen a la vez.
 const puerto = Number(opcion('puerto', 4173));
+/**
+ * Página a capturar dentro del servidor. Por defecto la del juego, pero cada
+ * banco de pruebas tiene la suya, de modo que varios desarrollos en paralelo
+ * pueden verificarse sin tocar el punto de entrada compartido.
+ */
+const pagina = opcion('pagina', '');
+/** Sirve con el servidor de desarrollo en vez de `preview`; no requiere compilar. */
+const usarDev = Boolean(opcion('dev', false));
+/** Variable global cuya aparición indica que la página ya está lista para capturar. */
+const globalEspera = String(opcion('global', 'juego'));
 
 /**
  * Arranca `vite preview` y espera a que responda.
@@ -77,8 +87,12 @@ const puerto = Number(opcion('puerto', 4173));
  * Sondeamos el puerto en lugar de leer la salida del proceso: cuando no hay terminal
  * interactiva, Vite no imprime su cartel y esperar a ese texto cuelga el script.
  */
-async function levantarServidor(puerto = 4173) {
-  const proceso = spawn('npx', ['vite', 'preview', '--port', String(puerto), '--host', '127.0.0.1'], {
+async function levantarServidor(puerto = 4173, dev = false) {
+  const argumentos = dev
+    ? ['vite', '--port', String(puerto), '--host', '127.0.0.1', '--strictPort']
+    : ['vite', 'preview', '--port', String(puerto), '--host', '127.0.0.1', '--strictPort'];
+
+  const proceso = spawn('npx', argumentos, {
     stdio: 'ignore',
     detached: false,
   });
@@ -105,7 +119,7 @@ async function principal() {
 
   const servidor = urlManual
     ? { url: urlManual, cerrar: () => {} }
-    : await levantarServidor(puerto);
+    : await levantarServidor(puerto, usarDev);
 
   const navegador = await chromium.launch({
     executablePath: await buscarChromium(),
@@ -137,14 +151,19 @@ async function principal() {
   });
   pagina.on('pageerror', (error) => errores.push(String(error)));
 
-  const url = semilla ? `${servidor.url}?semilla=${semilla}` : servidor.url;
+  const base = pagina ? new URL(String(pagina), servidor.url).href : servidor.url;
+  const url = semilla ? `${base}?semilla=${semilla}` : base;
   await pagina.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
 
-  // Esperamos a que el juego se declare listo, no a un tiempo arbitrario.
+  // Esperamos a que la página se declare lista, no a un tiempo arbitrario.
   try {
-    await pagina.waitForFunction(() => Boolean(window.juego), { timeout: 45000 });
+    await pagina.waitForFunction(
+      (nombre) => Boolean(window[nombre]),
+      globalEspera,
+      { timeout: 45000 },
+    );
   } catch {
-    console.error('AVISO: el juego no expuso window.juego; se captura igualmente.');
+    console.error(`AVISO: la página no expuso window.${globalEspera}; se captura igualmente.`);
   }
 
   if (poseCamara) {
