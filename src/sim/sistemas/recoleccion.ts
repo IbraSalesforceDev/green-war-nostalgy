@@ -147,7 +147,10 @@ export class SistemaRecoleccion {
     if (!this.esYacimientoUtil(yacimiento)) {
       yacimiento = this.buscarYacimiento(i, this.tipoDeseado(i));
       if (yacimiento === ENTIDAD_NULA) {
-        this.abandonar(i);
+        // Se acabó el recurso en toda la zona. Lo que ya lleva encima no se tira:
+        // primero se entrega y luego el obrero queda libre.
+        if (mundo.cargaCantidad[i] > 0) this.pasarADevolver(i);
+        else this.abandonar(i);
         return;
       }
     }

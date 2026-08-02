@@ -3,8 +3,16 @@ import { BucleJuego } from './core/loop';
 import { CamaraJuego } from './render/camara';
 import { Renderizador } from './render/renderizador';
 import { construirTerreno } from './render/terreno';
+import { crearRenderEntidades } from './render/entidades';
 import { generarMapa } from './sim/generador';
 import { Mundo } from './sim/mundo';
+import { poblarMapaInicial } from './sim/fabrica';
+import { crearBuscadorRutas } from './sim/rutas/buscador';
+import { Simulacion } from './sim/sistemas/orquestador';
+import { enchufarEvitacion } from './sim/enlaceEvitacion';
+import { sesion } from './estado/sesion';
+import * as ordenes from './sim/ordenes';
+import { Bando } from './sim/tipos';
 import {
   ALTO_MAPA,
   ANCHO_MAPA,
@@ -58,19 +66,42 @@ async function arrancar(): Promise<void> {
   progreso(0.2, 'Levantando las montañas…');
   await respirar();
 
-  const semilla = Math.floor(Math.random() * 0x7fffffff);
+  // La semilla se puede fijar por la barra de direcciones (?semilla=123): así una
+  // partida concreta se puede reproducir exactamente, que es media depuración ganada.
+  const parametros = new URLSearchParams(location.search);
+  const semillaPedida = Number(parametros.get('semilla'));
+  const semilla = Number.isFinite(semillaPedida) && semillaPedida > 0
+    ? semillaPedida
+    : Math.floor(Math.random() * 0x7fffffff);
+
   const generado = generarMapa({ ancho: ANCHO_MAPA, alto: ALTO_MAPA, semilla });
   const mundo = new Mundo(generado.mapa, semilla);
 
   progreso(0.45, 'Sembrando los bosques…');
   await respirar();
 
+  // Bosques, vetas de oro, rocas y las dos bases de inicio con sus campesinos.
+  poblarMapaInicial(mundo, generado);
+  mundo.estadoDe(Bando.ORCOS).esIA = true;
+  sesion.bandoJugador = Bando.HUMANOS;
+
+  // La evitación local vive en el módulo de rutas y el movimiento la consume a través
+  // de un registro: así ninguno de los dos depende del otro. `Mundo` cumple el
+  // contrato `EntornoUnidades` de forma estructural, de modo que el adaptador es
+  // solo un cambio de forma de la llamada.
+  const buscador = crearBuscadorRutas(generado.mapa);
+  enchufarEvitacion();
+
+  const simulacion = new Simulacion(mundo, buscador);
+
   const escena = new THREE.Scene();
   escena.background = new THREE.Color(0x1b2530);
   escena.fog = new THREE.Fog(0x1b2530, 60, 190);
 
-  const terreno = construirTerreno(generado.mapa);
+  const terreno = construirTerreno(generado.mapa, renderizador.calidad);
   escena.add(terreno.malla);
+
+  const renderEntidades = crearRenderEntidades(escena, mundo, renderizador.calidad);
 
   progreso(0.7, 'Encendiendo el sol…');
   await respirar();
@@ -89,14 +120,17 @@ async function arrancar(): Promise<void> {
   const bucle = new BucleJuego({
     hercios: HERCIOS_SIMULACION,
     alSimular: (dt) => {
-      mundo.tick++;
-      mundo.archivarTransformaciones();
-      mundo.reconstruirEspacial();
-      void dt;
+      // `paso` se encarga por su cuenta del contador de ticks, de archivar las
+      // transformaciones y de reconstruir la rejilla espacial.
+      simulacion.paso(dt);
+      sesion.tiempoPartida += dt;
+      sesion.depurarSeleccion(mundo);
+      sesion.caducarAvisos();
     },
-    alRenderizar: (dtReal) => {
+    alRenderizar: (dtReal, alfa) => {
       teclas.aplicar(dtReal);
       camara.actualizar(dtReal);
+      renderEntidades.actualizar(alfa, dtReal);
       renderizador.reiniciarEstadisticas();
       renderizador.nucleo.render(escena, camara.nucleo);
       renderizador.ajustarResolucion(bucle.msRender + bucle.msSimulacion, dtReal);
@@ -126,7 +160,7 @@ async function arrancar(): Promise<void> {
   // Expuesto para depuración desde la consola del navegador y para las capturas
   // automatizadas de la revisión visual.
   Object.assign(window as unknown as Record<string, unknown>, {
-    juego: { mundo, camara, escena, renderizador, bucle, generado },
+    juego: { mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes },
   });
 }
 
