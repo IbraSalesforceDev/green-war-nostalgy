@@ -75,7 +75,7 @@ const puerto = Number(opcion('puerto', 4173));
  * banco de pruebas tiene la suya, de modo que varios desarrollos en paralelo
  * pueden verificarse sin tocar el punto de entrada compartido.
  */
-const pagina = opcion('pagina', '');
+const rutaPagina = opcion('pagina', '');
 /** Sirve con el servidor de desarrollo en vez de `preview`; no requiere compilar. */
 const usarDev = Boolean(opcion('dev', false));
 /** Variable global cuya aparición indica que la página ya está lista para capturar. */
@@ -151,7 +151,9 @@ async function principal() {
   });
   pagina.on('pageerror', (error) => errores.push(String(error)));
 
-  const base = pagina ? new URL(String(pagina), servidor.url).href : servidor.url;
+  // Ojo con el nombre: `pagina` es el objeto de Playwright. La ruta de la página a
+  // abrir se llama `rutaPagina` a propósito, para que una no tape a la otra.
+  const base = rutaPagina ? new URL(String(rutaPagina), servidor.url).href : servidor.url;
   const url = semilla ? `${base}?semilla=${semilla}` : base;
   await pagina.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
 

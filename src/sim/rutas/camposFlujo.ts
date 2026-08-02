@@ -216,6 +216,7 @@ export class CacheCamposFlujo {
 
         const diagonal = k >= 4;
         // Se propaga «hacia atrás»: el paso real será del vecino hacia `actual`.
+        if (!mapa.transitable(nx, nz)) continue;
         if (!mapa.transitableEntre(nx, nz, cx, cz)) continue;
         if (diagonal) {
           if (!mapa.transitableEntre(nx, nz, cx, nz)) continue;
