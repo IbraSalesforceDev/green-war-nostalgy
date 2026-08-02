@@ -93,6 +93,13 @@ function lineaLibre(
     } else {
       // La línea cruza justo por el vértice: solo se admite si se puede rodear por
       // los dos lados. Es lo que impide colarse entre dos bloques en diagonal.
+      //
+      // El paso directo también se comprueba, y no es redundante: con los dos flancos
+      // libres pero a distinta altura, rodear por un lado puede ser legal (rampa) y el
+      // salto en diagonal no. El sistema de movimiento valida el paso exactamente así
+      // (`puedePisar`), de modo que un atajo que él rechace dejaría a la unidad
+      // empotrada contra el acantilado.
+      if (!mapa.transitableEntre(cx, cz, cx + pasoX, cz + pasoZ)) return false;
       if (!mapa.transitableEntre(cx, cz, cx + pasoX, cz)) return false;
       if (!mapa.transitableEntre(cx, cz, cx, cz + pasoZ)) return false;
       if (!mapa.transitableEntre(cx + pasoX, cz, cx + pasoX, cz + pasoZ)) return false;
