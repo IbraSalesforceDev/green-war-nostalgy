@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1a1206" />
+    <meta name="description" content="Estrategia en tiempo real isométrica forjada en Three.js." />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Nostalgia de la Guerra Verde</title>
+    <style>
+      :root {
+        --pergamino: #d9c49a;
+        --tinta: #2b1d0e;
+        --oro: #e8b64c;
+        --sangre: #8b2c1d;
+        --piedra: #4a4136;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0805;
+        color: var(--pergamino);
+        font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        overscroll-behavior: none;
+        touch-action: none;
+      }
+      #lienzo {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #capa-ui {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #cargador {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2rem;
+        background:
+          radial-gradient(ellipse at 50% 40%, #2a1c0c 0%, #0a0805 70%),
+          #0a0805;
+        transition: opacity 0.8s ease-out;
+      }
+      #cargador.oculto {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #titulo-carga {
+        font-size: clamp(1.6rem, 6vw, 3.4rem);
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        text-align: center;
+        color: var(--oro);
+        text-shadow:
+          0 0 24px rgba(232, 182, 76, 0.35),
+          0 3px 0 #000,
+          0 0 2px #000;
+      }
+      #subtitulo-carga {
+        font-size: clamp(0.7rem, 2.6vw, 0.95rem);
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: #8a7550;
+      }
+      #barra-marco {
+        width: min(70vw, 460px);
+        height: 20px;
+        border: 2px solid #5c4a2a;
+        border-radius: 3px;
+        background: #140f08;
+        box-shadow:
+          inset 0 2px 6px rgba(0, 0, 0, 0.9),
+          0 0 18px rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+      }
+      #barra-relleno {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(180deg, #f0cf7a 0%, #d29c30 45%, #8f6416 100%);
+        box-shadow: 0 0 12px rgba(232, 182, 76, 0.6);
+        transition: width 0.25s ease-out;
+      }
+      #texto-carga {
+        font-size: 0.8rem;
+        letter-spacing: 0.1em;
+        color: #9c8760;
+        min-height: 1.2em;
+        text-align: center;
+        padding: 0 1rem;
+      }
+      #aviso-error {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: 2rem;
+        text-align: center;
+        background: #0a0805;
+      }
+      #aviso-error h1 {
+        color: var(--sangre);
+        font-size: 1.4rem;
+        letter-spacing: 0.1em;
+      }
+      #aviso-error p {
+        max-width: 40rem;
+        line-height: 1.6;
+        color: #9c8760;
+        font-size: 0.9rem;
+      }
+      #aviso-error pre {
+        max-width: 90vw;
+        max-height: 40vh;
+        overflow: auto;
+        padding: 1rem;
+        background: #140f08;
+        border: 1px solid #3a2f1c;
+        color: #b09a70;
+        font-size: 0.72rem;
+        text-align: left;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="lienzo"></canvas>
+    <div id="capa-ui" aria-live="polite"></div>
+
+    <div id="cargador">
+      <div id="titulo-carga">Nostalgia de la Guerra Verde</div>
+      <div id="subtitulo-carga">Estrategia en tiempo real</div>
+      <div id="barra-marco"><div id="barra-relleno"></div></div>
+      <div id="texto-carga">Despertando a los herreros&hellip;</div>
+    </div>
+
+    <div id="aviso-error">
+      <h1>La forja se ha apagado</h1>
+      <p>
+        No se ha podido iniciar el motor gráfico. Este juego necesita un navegador con WebGL 2.
+        Prueba con una versión reciente de Chrome, Safari o Firefox.
+      </p>
+      <pre id="detalle-error"></pre>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
