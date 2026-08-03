@@ -3,7 +3,12 @@ import { BucleJuego } from './core/loop';
 import { CamaraJuego } from './render/camara';
 import { Renderizador } from './render/renderizador';
 import { construirTerreno } from './render/terreno';
+import { crearAgua } from './render/agua';
+import { crearCielo } from './render/cielo';
+import { crearVegetacion } from './render/vegetacion';
+import { crearIluminacion } from './render/iluminacion';
 import { crearRenderEntidades } from './render/entidades';
+import { crearFabricaModelos } from './render/modelos/fabrica';
 import { generarMapa } from './sim/generador';
 import { Mundo } from './sim/mundo';
 import { poblarMapaInicial } from './sim/fabrica';
@@ -95,18 +100,26 @@ async function arrancar(): Promise<void> {
   const simulacion = new Simulacion(mundo, buscador);
 
   const escena = new THREE.Scene();
-  escena.background = new THREE.Color(0x1b2530);
-  escena.fog = new THREE.Fog(0x1b2530, 60, 190);
 
   const terreno = construirTerreno(generado.mapa, renderizador.calidad);
   escena.add(terreno.malla);
 
-  const renderEntidades = crearRenderEntidades(escena, mundo, renderizador.calidad);
+  const agua = crearAgua(generado.mapa, renderizador.calidad);
+  escena.add(agua.raiz);
+
+  const cielo = crearCielo(escena, renderizador.calidad);
+
+  const vegetacion = crearVegetacion(generado.mapa, renderizador.calidad);
+  escena.add(vegetacion.raiz);
+
+  const fabricaModelos = crearFabricaModelos();
+  const renderEntidades = crearRenderEntidades(escena, mundo, renderizador.calidad, fabricaModelos);
 
   progreso(0.7, 'Encendiendo el sol…');
   await respirar();
 
-  configurarLuces(escena, renderizador);
+  const iluminacion = crearIluminacion(escena, renderizador.calidad);
+  escena.add(iluminacion.raiz);
 
   const camara = new CamaraJuego(generado.mapa, renderizador.relacionAspecto);
   const inicioJugador = generado.inicios[0]!;
@@ -130,6 +143,11 @@ async function arrancar(): Promise<void> {
     alRenderizar: (dtReal, alfa) => {
       teclas.aplicar(dtReal);
       camara.actualizar(dtReal);
+      iluminacion.enfocarSombras(camara.objetivoX, camara.objetivoZ);
+      iluminacion.actualizar(dtReal);
+      agua.actualizar(dtReal);
+      cielo.actualizar(dtReal);
+      vegetacion.actualizar(dtReal);
       renderEntidades.actualizar(alfa, dtReal);
       renderizador.reiniciarEstadisticas();
       renderizador.nucleo.render(escena, camara.nucleo);
@@ -160,52 +178,11 @@ async function arrancar(): Promise<void> {
   // Expuesto para depuración desde la consola del navegador y para las capturas
   // automatizadas de la revisión visual.
   Object.assign(window as unknown as Record<string, unknown>, {
-    juego: { mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes },
+    juego: {
+      mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes,
+      terreno, agua, cielo, vegetacion, iluminacion, fabricaModelos, renderEntidades,
+    },
   });
-}
-
-/**
- * Iluminación de la escena.
- *
- * Tres luces y nada más: un sol direccional que proyecta las sombras y define la
- * hora del día, un relleno frío desde el lado opuesto para que las zonas en sombra
- * no sean manchas negras, y una hemisférica que simula el rebote del cielo y del
- * suelo. Es el esquema mínimo que hace que un modelo sencillo parezca esculpido.
- */
-function configurarLuces(escena: THREE.Scene, renderizador: Renderizador): void {
-  const sol = new THREE.DirectionalLight(0xffe8bd, 2.6);
-  sol.position.set(-45, 70, 30);
-  sol.name = 'sol';
-
-  if (renderizador.calidad.resolucionSombras > 0) {
-    sol.castShadow = true;
-    sol.shadow.mapSize.set(
-      renderizador.calidad.resolucionSombras,
-      renderizador.calidad.resolucionSombras,
-    );
-    const c = sol.shadow.camera;
-    c.near = 1;
-    c.far = 260;
-    c.left = -55;
-    c.right = 55;
-    c.top = 55;
-    c.bottom = -55;
-    c.updateProjectionMatrix();
-    // El sesgo normal es el que quita el moteado de las superficies inclinadas sin
-    // despegar las sombras de los pies de las unidades.
-    sol.shadow.bias = -0.0006;
-    sol.shadow.normalBias = 0.035;
-  }
-
-  escena.add(sol);
-  escena.add(sol.target);
-
-  const relleno = new THREE.DirectionalLight(0x8ab4e8, 0.55);
-  relleno.position.set(50, 35, -40);
-  escena.add(relleno);
-
-  const cielo = new THREE.HemisphereLight(0x9fc6f0, 0x4a3b28, 0.75);
-  escena.add(cielo);
 }
 
 /** Controles provisionales de cámara: teclado, rueda y arrastre. */

@@ -280,8 +280,17 @@ function crearAspa(): THREE.BufferGeometry {
     0, 1, 1, 1, 1, 0, 0, 0,
     0, 1, 1, 1, 1, 0, 0, 0,
   ];
-  const normales: number[] = [];
-  for (let i = 0; i < 8; i++) normales.push(0, 1, 0);
+  // Dos planos VERTICALES cruzados, no uno horizontal: la normal debe ir en el
+  // plano, no (0,1,0). Con esa normal vertical y el material a doble cara, Three
+  // invierte la normal en las caras traseras (a -Y) y una vertical invertida
+  // recibe luz recortada a cero contra un sol que llega sobre todo desde arriba:
+  // la mitad de cada instancia —la que queda de espaldas a la cámara según su
+  // rotación aleatoria— se pintaba negra. El primer plano (spans X, Z=0) mira
+  // en Z; el segundo (spans Z, X=0) mira en X.
+  const normales = [
+    0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+    1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+  ];
   const indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
 
   const geometria = new THREE.BufferGeometry();
