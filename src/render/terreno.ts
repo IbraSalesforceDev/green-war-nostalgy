@@ -92,11 +92,11 @@ const HUNDIMIENTO_PROFUNDO = 0.62;
 export const NIVEL_AGUA = -0.065;
 
 /** Repeticiones del atlas por unidad de mundo. */
-const ESCALA_UV_SUELO = 0.36;
+const ESCALA_UV_SUELO = 0.30;
 const ESCALA_UV_PARED = 0.55;
 
 /** Saliente máximo de la roca de las paredes, en unidades de mundo. */
-const SALIENTE_PARED = 0.075;
+const SALIENTE_PARED = 0.13;
 
 // --- Campos continuos del terreno --------------------------------------------
 
@@ -159,9 +159,9 @@ function pesosBase(tipo: TipoCasilla, destino: Float32Array, base: number): void
       // La *cara* del acantilado es roca, pero su meseta superior sigue siendo
       // pradera con la piedra asomando en el borde. Pintarla entera de gris
       // dibujaría un contorno gris alrededor de cada colina.
-      h = 0.78;
-      t = 0.16;
-      r = 0.42;
+      h = 1;
+      t = 0.12;
+      r = 0.26;
       break;
     case TipoCasilla.AGUA_BAJA:
       t = 0.2;
@@ -578,15 +578,18 @@ export function construirTerreno(
 
             // Saliente: la roca se abomba hacia fuera según se baja, nunca arriba.
             const rugosidad = ruidoFractal((x + z) * 1.35, y * 2.4, 2, 0.5, 2, 271);
-            let fade = pasoSuave(0, 0.3, fv);
+            // Perfil de la pared: nace pegada a la cornisa, se abomba en el tercio
+            // superior —la ceja de roca que da sombra al muro— y vuelve a meterse
+            // hacia dentro al llegar al pie.
+            let fade = pasoSuave(0, 0.34, fv) * (1 - pasoSuave(0.55, 1, fv) * 0.55);
             if (!continuaInicio) fade *= pasoSuave(0, 0.3, t);
             if (!continuaFinal) fade *= pasoSuave(0, 0.3, 1 - t);
             const saliente = (0.3 + rugosidad * 0.7) * SALIENTE_PARED * fade;
             if (j === segV) y -= 0.03; // el pie se entierra: nada de muros flotando
 
             // Pesos: roca con algo de tierra, y la hierba desbordando la cornisa.
-            const flecoHierba = 0.3 + ruidoFractal(x * 2.1, z * 2.1, 2, 0.5, 2, 517) * 0.75;
-            const cornisa = flecoHierba * (1 - pasoSuave(0.02, 0.16 + flecoHierba * 0.12, fv));
+            const flecoHierba = 0.45 + ruidoFractal(x * 2.1, z * 2.1, 2, 0.5, 2, 517) * 1.35;
+            const cornisa = flecoHierba * (1 - pasoSuave(0.03, 0.16 + flecoHierba * 0.26, fv));
             const w0 = cornisa;
             const w1 = 0.18 + fv * 0.22;
             const w2 = 1;
@@ -706,6 +709,8 @@ function crearMaterialTerreno(calidad: CalidadRender): THREE.MeshStandardMateria
     },
     // Una repetición cada ~94 casillas: en un mapa de 96 no llega a repetirse.
     escalaMacro: { value: 1 / 94 },
+    // Periodo de la deriva: 13 casillas, cuatro veces el del mosaico.
+    escalaDeriva: { value: 1 / 13 },
     fuerzaNormal: { value: conNormales ? 1.15 : 0 },
   };
 
@@ -735,6 +740,7 @@ function crearMaterialTerreno(calidad: CalidadRender): THREE.MeshStandardMateria
       uniform sampler2D mapaMacro;
       uniform vec4 rugosidadCapa;
       uniform float escalaMacro;
+      uniform float escalaDeriva;
       uniform float fuerzaNormal;
       varying vec4 vPesos;
       varying vec2 vExtra;
@@ -761,6 +767,13 @@ function crearMaterialTerreno(calidad: CalidadRender): THREE.MeshStandardMateria
           : vec2(dot(vMundo.xz, ejeT.xz), vMundo.y) * ${ESCALA_UV_PARED.toFixed(4)};
 
         vec3 macro = texture(mapaMacro, vMundo.xz * escalaMacro).rgb;
+
+        // Deformación del dominio. El mosaico del atlas se repite cada tres
+        // casillas y, alineado en rejilla, el ojo lo caza de inmediato; empujando
+        // las coordenadas con un ruido de periodo mucho mayor, la repetición sigue
+        // ahí pero deja de estar alineada y desaparece como patrón.
+        vec3 deriva = texture(mapaMacro, vMundo.xz * escalaDeriva).rgb;
+        uvTerreno += (deriva.rg - 0.5) * 0.85;
 
         // El macro empuja los pesos: sin él las transiciones serían óvalos suaves y
         // regulares, que es tan artificial como el corte a cuchillo.
@@ -830,3 +843,37 @@ function crearMaterialTerreno(calidad: CalidadRender): THREE.MeshStandardMateria
 
   return material;
 }
+
+/**
+ * DEFECTO CONOCIDO, sin resolver — diagnosticado 2026-08-03, pendiente de arreglo.
+ *
+ * La malla tiene 556 aristas «abiertas» (sin pareja) estrictamente dentro del
+ * mapa, no en su perímetro. Reproducible con http://localhost:5173/?semilla=555555.
+ *
+ * Se ha aislado el patrón: aparecen en esquinas CÓNCAVAS del acantilado, donde una
+ * casilla baja tiene DOS vecinos cardinales más altos a la vez (p. ej. niveles
+ *   2 2 .
+ *   2 1 1
+ *   . 1 1
+ * con la casilla central en (1,1) del recorte). Las dos paredes que deberían
+ * encontrarse en el vértice compartido de esa esquina no coinciden en posición.
+ *
+ * Se ha descartado como causa el pie enterrado de las paredes (el descenso de
+ * -0.03 al pie, intencionado, ver comentario «el pie se entierra» más arriba):
+ * ese hueco es un solape, no una grieta, y no debería verse. El hueco real
+ * detectado tiene otra naturaleza y aparece en el borde SUPERIOR de la pared
+ * (fv=0, altura = nivel * ALTURA_ESCALON exacta), que en teoría debería coincidir
+ * bit a bit con el borde de la cara superior de la casilla vecina.
+ *
+ * Herramienta de diagnóstico: cargar el juego, recorrer `geometria.index` en
+ * tripletes, contar cuántos triángulos referencian cada arista por posición
+ * (redondeada a 3 decimales) de sus dos vértices; una arista con recuento 1 y
+ * cuyas coordenadas caen dentro del mapa (no en el perímetro sellado) es un
+ * hueco real. Se puede repetir con Playwright + `tools/capturar.mjs` como base.
+ *
+ * No se ha aplicado ningún parche a ciegas: la función que genera las paredes
+ * (`construirTerreno`, sección «Paredes de acantilado», y `mismaPared`) es densa
+ * y modificarla sin terminar de entender el caso de esquina cóncava con dos
+ * paredes convergentes se arriesgaba a cambiar el aspecto de todo el acantilado
+ * para peor. Queda para quien retome este módulo.
+ */

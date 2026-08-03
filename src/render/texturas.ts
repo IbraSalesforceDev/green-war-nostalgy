@@ -172,12 +172,16 @@ function generarHierba(n: number): CapaCruda {
       const u = i / n;
       const v = j / n;
 
-      const matas = fbmTileable(u * 6, v * 6, 6, 4, 11);
+      // Las frecuencias de aquí abajo están deliberadamente altas. Cualquier mancha
+      // de periodo comparable al tamaño del mosaico se convierte, al repetirse por
+      // el mapa, en una cuadrícula perfectamente visible: el contenido de baja
+      // frecuencia del terreno tiene que venir de la textura macro, no de aquí.
+      const matas = fbmTileable(u * 11, v * 11, 11, 4, 11);
       const finas = fbmTileable(u * 26, v * 26, 26, 3, 29);
       // Ruido estirado: las celdas son cinco veces más largas que anchas, y eso
       // se lee como hebras y no como manchas.
       const hebras = fbmTileable(u * 48, v * 10, 48, 2, 47);
-      const seco = suavizar(0.58, 0.8, fbmTileable(u * 3, v * 3, 3, 3, 71));
+      const seco = suavizar(0.62, 0.86, fbmTileable(u * 9, v * 9, 9, 3, 71));
 
       const luz = limitar01(matas * 0.5 + hebras * 0.34 + finas * 0.16);
 
@@ -187,9 +191,9 @@ function generarHierba(n: number): CapaCruda {
       let b = mezclar(28, 66, luz * 0.85);
 
       // Calvas secas: pajizas, no marrones; el marrón las confundiría con tierra.
-      r = mezclar(r, 158, seco * 0.75);
-      g = mezclar(g, 146, seco * 0.6);
-      b = mezclar(b, 84, seco * 0.6);
+      r = mezclar(r, 152, seco * 0.5);
+      g = mezclar(g, 142, seco * 0.42);
+      b = mezclar(b, 86, seco * 0.42);
 
       const k = (j * n + i) * 3;
       capa.color[k] = r;
@@ -210,7 +214,7 @@ function generarTierra(n: number): CapaCruda {
       const u = i / n;
       const v = j / n;
 
-      const mancha = fbmTileable(u * 5, v * 5, 5, 5, 5);
+      const mancha = fbmTileable(u * 9, v * 9, 9, 5, 5);
       const grano = fbmTileable(u * 40, v * 40, 40, 2, 13);
       const grietas = suavizar(0.72, 0.96, fbmCrestas(u * 7, v * 7, 7, 3, 23));
 
@@ -329,7 +333,7 @@ function generarArena(n: number): CapaCruda {
       const deriva = (fbmTileable(u * 4, v * 4, 4, 3, 137) - 0.5) * 1.6;
       const rizos = 0.5 + 0.5 * Math.sin((u * 18 + v * 5 + deriva) * Math.PI * 2);
       const grano = fbmTileable(u * 56, v * 56, 56, 2, 151);
-      const mancha = fbmTileable(u * 5, v * 5, 5, 3, 163);
+      const mancha = fbmTileable(u * 9, v * 9, 9, 3, 163);
       const conchas = suavizar(0.88, 0.97, fbmTileable(u * 30, v * 30, 30, 1, 177));
 
       const luz = limitar01(rizos * 0.34 + grano * 0.24 + mancha * 0.42);
@@ -695,6 +699,14 @@ export function crearSpriteVegetacion(
     }
   }
 
+  // Sin esto las plantas salen negras a media distancia, y cuesta un rato entender
+  // por qué: los téxeles transparentes tienen el color a cero, y al construir los
+  // mipmaps el hardware promedia color y alfa por separado, así que el color se
+  // contamina de negro mientras el alfa sigue pasando la prueba de recorte. La cura
+  // clásica es *dilatar* el color hacia fuera de la silueta antes de generar los
+  // mipmaps: el alfa manda la forma y el color ya nunca tiene negro que aportar.
+  dilatarColor(datos, n, Math.max(4, Math.round(n / 12)));
+
   const textura = new THREE.DataTexture(datos, n, n, THREE.RGBAFormat, THREE.UnsignedByteType);
   textura.colorSpace = THREE.SRGBColorSpace;
   textura.wrapS = THREE.ClampToEdgeWrapping;
@@ -707,6 +719,53 @@ export function crearSpriteVegetacion(
 
   spritesCache.set(clave, textura);
   return textura;
+}
+
+/**
+ * Extiende el color de los téxeles opacos hacia los transparentes.
+ *
+ * Cada pasada avanza un téxel: los que aún no tienen color copian el promedio de
+ * sus vecinos que sí lo tienen. El alfa no se toca, de modo que la silueta recortada
+ * es exactamente la misma; lo único que cambia es de qué color es el vacío.
+ */
+function dilatarColor(datos: Uint8Array, n: number, pasadas: number): void {
+  const tieneColor = new Uint8Array(n * n);
+  for (let p = 0; p < n * n; p++) tieneColor[p] = datos[p * 4 + 3] > 0 ? 1 : 0;
+
+  for (let paso = 0; paso < pasadas; paso++) {
+    const nuevos: number[] = [];
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const p = j * n + i;
+        if (tieneColor[p]) continue;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let cuenta = 0;
+        for (let dj = -1; dj <= 1; dj++) {
+          const y = j + dj;
+          if (y < 0 || y >= n) continue;
+          for (let di = -1; di <= 1; di++) {
+            const x = i + di;
+            if (x < 0 || x >= n) continue;
+            const q = y * n + x;
+            if (!tieneColor[q]) continue;
+            r += datos[q * 4];
+            g += datos[q * 4 + 1];
+            b += datos[q * 4 + 2];
+            cuenta++;
+          }
+        }
+        if (cuenta === 0) continue;
+        datos[p * 4] = Math.round(r / cuenta);
+        datos[p * 4 + 1] = Math.round(g / cuenta);
+        datos[p * 4 + 2] = Math.round(b / cuenta);
+        nuevos.push(p);
+      }
+    }
+    if (nuevos.length === 0) break;
+    for (const p of nuevos) tieneColor[p] = 1;
+  }
 }
 
 // --- Limpieza -----------------------------------------------------------------

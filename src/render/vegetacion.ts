@@ -105,16 +105,20 @@ export function crearVegetacion(
       const entera = Math.floor(cuantas);
       const resto = cuantas - entera;
       const total = entera + (hash2(cx, cz, 41) < resto ? 1 : 0);
+      if (total <= 0) continue;
 
       // Los ramos de flores se agrupan en claros concretos, no salpicados.
       const floral = ruidoFractal(cx * 0.09 + 40, cz * 0.09 + 40, 2, 0.5, 2, 811);
 
       for (let k = 0; k < total; k++) {
-        const hx = hash2(cx * 7 + k, cz * 13, 101);
-        const hz = hash2(cx * 7 + k, cz * 13, 211);
-        const hc = hash2(cx * 7 + k, cz * 13, 307);
-        const hs = hash2(cx * 7 + k, cz * 13, 401);
-        const hg = hash2(cx * 7 + k, cz * 13, 503);
+        // Semillas bien separadas por planta: con `cx * 7 + k` los índices de
+        // casillas vecinas colisionan y la siembra sale en hileras diagonales.
+        const s0 = k * 9173;
+        const hx = hash2(cx, cz, s0 + 101);
+        const hz = hash2(cx, cz, s0 + 2111);
+        const hc = hash2(cx, cz, s0 + 3307);
+        const hs = hash2(cx, cz, s0 + 4401);
+        const hg = hash2(cx, cz, s0 + 5503);
 
         const x = (cx + 0.08 + hx * 0.84) * TAM_CASILLA;
         const z = (cz + 0.08 + hz * 0.84) * TAM_CASILLA;
@@ -132,7 +136,7 @@ export function crearVegetacion(
           y: relieve.alturaEn(x, z) - 0.02,
           giro: hg * Math.PI * 2,
           escala: ajuste.escalaMin + hs * (ajuste.escalaMax - ajuste.escalaMin),
-          tono: hash2(cx * 7 + k, cz * 13, 601),
+          tono: hash2(cx, cz, s0 + 6601),
           clase,
         });
       }
@@ -176,7 +180,7 @@ export function crearVegetacion(
       map: textura,
       // Recorte por alfa en vez de mezcla: se dibuja como opaco, escribe
       // profundidad y no hay que ordenar miles de instancias por distancia.
-      alphaTest: 0.42,
+      alphaTest: 0.35,
       transparent: false,
       side: THREE.DoubleSide,
       roughness: 0.93,

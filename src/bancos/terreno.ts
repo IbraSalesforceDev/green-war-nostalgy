@@ -72,9 +72,19 @@ function arrancar(): void {
 
   const camara = new CamaraJuego(generado.mapa, renderizador.relacionAspecto);
   const inicio = generado.inicios[0]!;
+  const puntos = puntosDeInteres(generado.mapa);
+
+  const vista = parametros.get('vista');
+  const porDefecto =
+    vista === 'agua' && puntos.agua
+      ? puntos.agua
+      : vista === 'acantilado' && puntos.acantilado
+        ? puntos.acantilado
+        : ([inicio.cx + 4, inicio.cz + 4] as [number, number]);
+
   camara.saltarA(
-    Number(parametros.get('x') ?? inicio.cx + 4),
-    Number(parametros.get('z') ?? inicio.cz + 4),
+    Number(parametros.get('x') ?? porDefecto[0]),
+    Number(parametros.get('z') ?? porDefecto[1]),
   );
   const distanciaPedida = Number(parametros.get('d') ?? 0);
   if (distanciaPedida > 0) camara.distancia = distanciaPedida;
@@ -129,6 +139,7 @@ function arrancar(): void {
   const banco = {
     escena,
     camara,
+    puntos,
     renderizador,
     terreno,
     agua,
@@ -149,6 +160,55 @@ function arrancar(): void {
   console.info(
     `[banco] calidad=${calidad.nivel} plantas=${vegetacion.total} agua=${agua.hayAgua}`,
   );
+}
+
+/**
+ * Busca los sitios que merece la pena revisar.
+ *
+ * La orilla y el pie de un acantilado son los dos puntos donde el entorno puede
+ * romperse de verdad (grietas entre mallas, líneas de agua rectas, muros flotando),
+ * así que el banco sabe llevar la cámara allí sin que haya que adivinar coordenadas.
+ */
+function puntosDeInteres(mapa: {
+  ancho: number;
+  alto: number;
+  esAgua(cx: number, cz: number): boolean;
+  nivelEn(cx: number, cz: number): number;
+}): { agua: [number, number] | null; acantilado: [number, number] | null; casillasAgua: number } {
+  let mejorAgua: [number, number] | null = null;
+  let mejorAguaPuntos = 0;
+  let mejorRisco: [number, number] | null = null;
+  let mejorRiscoPuntos = 0;
+  let casillasAgua = 0;
+
+  for (let cz = 3; cz < mapa.alto - 3; cz++) {
+    for (let cx = 3; cx < mapa.ancho - 3; cx++) {
+      if (mapa.esAgua(cx, cz)) casillasAgua++;
+
+      let agua = 0;
+      let tierra = 0;
+      let desnivel = 0;
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          if (mapa.esAgua(cx + dx, cz + dz)) agua++;
+          else tierra++;
+          desnivel += Math.abs(mapa.nivelEn(cx + dx, cz + dz) - mapa.nivelEn(cx, cz));
+        }
+      }
+      // Una buena vista de orilla es la que tiene mitad y mitad.
+      const puntosAgua = Math.min(agua, tierra);
+      if (puntosAgua > mejorAguaPuntos) {
+        mejorAguaPuntos = puntosAgua;
+        mejorAgua = [cx + 0.5, cz + 0.5];
+      }
+      if (desnivel > mejorRiscoPuntos) {
+        mejorRiscoPuntos = desnivel;
+        mejorRisco = [cx + 0.5, cz + 0.5];
+      }
+    }
+  }
+
+  return { agua: mejorAgua, acantilado: mejorRisco, casillasAgua };
 }
 
 /** Controles mínimos: teclado para desplazar y rueda para acercar. */
