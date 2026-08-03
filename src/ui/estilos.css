@@ -1,0 +1,882 @@
+/*
+ * Hoja de estilos del HUD.
+ *
+ * Fantasía medieval, no aplicación web: piedra tallada, pergamino y herrajes de
+ * bronce. Todo el volumen sale de degradados, `box-shadow` interiores y dos SVG
+ * generados aquí mismo (el marco de piedra con remaches y el grano de pergamino);
+ * no hay ni un solo archivo de imagen.
+ *
+ * Convenciones:
+ *  - Todas las clases llevan el prefijo `gwn-` para no chocar nunca con nada del
+ *    resto del juego que pudiera compartir `#capa-ui`.
+ *  - `--hud-*` son variables propias de este fichero; `--pergamino`, `--tinta`,
+ *    `--oro`, `--sangre` y `--piedra` ya las declara `index.html` a nivel de
+ *    documento y aquí solo se leen.
+ *  - Unidades relativas y `clamp()` en todas partes: el mismo fichero cubre desde
+ *    un móvil apaisado de 390 px de alto hasta un escritorio de sobra.
+ *  - Cualquier zona pulsable mide al menos 44px en su lado corto; en `(pointer:
+ *    coarse)` los botones crecen todavía más.
+ */
+
+:root {
+  --hud-piedra-clara: #6f6555;
+  --hud-piedra-media: #4a4136;
+  --hud-piedra-oscura: #241d15;
+  --hud-piedra-borde: #120d08;
+
+  --hud-bronce-brillo: #f0cf86;
+  --hud-bronce: #b4823f;
+  --hud-bronce-oscuro: #5a3c1c;
+
+  --hud-pergamino-clara: #ead9b0;
+  --hud-pergamino: #d9c49a;
+  --hud-pergamino-oscura: #a88f61;
+
+  --hud-tinta: #170f07;
+  --hud-tinta-suave: rgba(20, 14, 7, 0.88);
+  --hud-tinta-panel: rgba(24, 18, 10, 0.82);
+
+  --hud-oro: #e8b64c;
+  --hud-oro-vivo: #ffe7a6;
+  --hud-verde: #7fb04a;
+  --hud-verde-vivo: #a4d46e;
+  --hud-ambar: #e0b46a;
+  --hud-rojo: #c8442f;
+  --hud-rojo-vivo: #ff6a4d;
+  --hud-rojo-oscuro: #5c1c12;
+
+  --hud-sombra: rgba(0, 0, 0, 0.6);
+  --hud-sombra-suave: rgba(0, 0, 0, 0.35);
+
+  /* Tamaño mínimo de zona táctil. Sube solo/en dispositivos de puntero basto. */
+  --hud-toque: 44px;
+
+  /* Marco de piedra con remaches de bronce, en 9-slice vía border-image. */
+  --hud-marco-imagen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c7160'/%3E%3Cstop offset='0.5' stop-color='%234a4136'/%3E%3Cstop offset='1' stop-color='%23241d15'/%3E%3C/linearGradient%3E%3CradialGradient id='g2' cx='0.35' cy='0.32' r='0.75'%3E%3Cstop offset='0' stop-color='%23f6dd9c'/%3E%3Cstop offset='0.45' stop-color='%23b4823f'/%3E%3Cstop offset='1' stop-color='%234a2f14'/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g1)'/%3E%3Crect x='2.5' y='2.5' width='59' height='59' fill='none' stroke='%23100b06' stroke-width='2.4'/%3E%3Crect x='6.5' y='6.5' width='51' height='51' fill='none' stroke='%23948565' stroke-width='1' opacity='0.55'/%3E%3Ccircle cx='13' cy='13' r='6.4' fill='url(%23g2)' stroke='%23241708' stroke-width='1.2'/%3E%3Ccircle cx='51' cy='13' r='6.4' fill='url(%23g2)' stroke='%23241708' stroke-width='1.2'/%3E%3Ccircle cx='13' cy='51' r='6.4' fill='url(%23g2)' stroke='%23241708' stroke-width='1.2'/%3E%3Ccircle cx='51' cy='51' r='6.4' fill='url(%23g2)' stroke='%23241708' stroke-width='1.2'/%3E%3Ccircle cx='10.6' cy='10.6' r='1.5' fill='%23fff3d6' opacity='0.85'/%3E%3Ccircle cx='48.6' cy='10.6' r='1.5' fill='%23fff3d6' opacity='0.85'/%3E%3Ccircle cx='10.6' cy='48.6' r='1.5' fill='%23fff3d6' opacity='0.85'/%3E%3Ccircle cx='48.6' cy='48.6' r='1.5' fill='%23fff3d6' opacity='0.85'/%3E%3C/svg%3E");
+
+  /* Grano fino de pergamino: ruido fractal recortado a un tono cálido y oscuro. */
+  --hud-grano-imagen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.09 0 0 0 0 0.07 0 0 0 0 0.04 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.gwn-hud,
+.gwn-hud * {
+  box-sizing: border-box;
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Contenedor raíz: ocupa toda la capa de interfaz pero no roba toques al juego. */
+.gwn-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-pergamino-clara, var(--pergamino));
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Superficie común a todos los paneles: pergamino con grano + marco de piedra. */
+.gwn-panel {
+  position: absolute;
+  pointer-events: auto;
+  background:
+    var(--hud-grano-imagen),
+    linear-gradient(160deg, var(--hud-pergamino-clara) 0%, var(--hud-pergamino) 55%, var(--hud-pergamino-oscura) 100%);
+  background-size: 140px 140px, cover;
+  border-style: solid;
+  border-width: 12px;
+  border-image-source: var(--hud-marco-imagen);
+  border-image-slice: 20 fill;
+  border-image-width: 12px;
+  border-image-repeat: round;
+  box-shadow:
+    0 0.5rem 1.2rem var(--hud-sombra),
+    inset 0 0 0.6rem rgba(0, 0, 0, 0.25);
+  color: var(--hud-tinta);
+}
+
+/* Ocultar un panel entero (nada seleccionado, submenú cerrado…): un solo
+   interruptor común a todos los paneles, en vez de repetir la regla por cada uno. */
+.gwn-oculto {
+  display: none !important;
+}
+
+.gwn-panel--oscuro {
+  background:
+    var(--hud-grano-imagen),
+    linear-gradient(160deg, var(--hud-piedra-clara) 0%, var(--hud-piedra-media) 55%, var(--hud-piedra-oscura) 100%);
+  background-size: 140px 140px, cover;
+  color: var(--hud-pergamino-clara);
+}
+
+/* ============================= Barra de recursos ============================= */
+
+.gwn-recursos {
+  top: max(0.5rem, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: clamp(0.5rem, 1.6vw, 1.1rem);
+  padding: clamp(0.3rem, 1vw, 0.55rem) clamp(0.7rem, 2.4vw, 1.3rem);
+  border-radius: 0.6rem;
+  white-space: nowrap;
+}
+
+.gwn-recurso {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  font-size: clamp(0.75rem, 1.6vw, 0.95rem);
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.gwn-recurso .icono-svg {
+  width: clamp(1.05rem, 2.6vw, 1.4rem);
+  height: clamp(1.05rem, 2.6vw, 1.4rem);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+}
+
+.gwn-recurso-valor {
+  min-width: 2.6em;
+  text-align: left;
+}
+
+.gwn-recurso--separador {
+  width: 1px;
+  align-self: stretch;
+  background: linear-gradient(180deg, transparent, var(--hud-piedra-borde), transparent);
+  opacity: 0.5;
+}
+
+.gwn-recurso--poblacion.gwn-recurso--limite .gwn-recurso-valor {
+  color: var(--hud-rojo-oscuro);
+  animation: gwn-parpadeo-suave 1.1s ease-in-out infinite;
+}
+
+.gwn-recurso--reloj {
+  color: var(--hud-tinta);
+  opacity: 0.9;
+}
+
+/* =============================== Avisos =============================== */
+
+.gwn-avisos {
+  top: clamp(3.2rem, 8vh, 4rem);
+  right: max(0.6rem, env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  max-width: min(78vw, 21rem);
+  pointer-events: none;
+}
+
+.gwn-aviso {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.45rem;
+  font-size: clamp(0.68rem, 1.5vw, 0.82rem);
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transform: translateX(120%);
+  opacity: 0;
+  animation: gwn-entrar-aviso 0.32s ease-out forwards;
+  transition: opacity 0.5s ease;
+  min-height: var(--hud-toque);
+}
+
+.gwn-aviso.gwn-aviso--saliendo {
+  animation: none;
+  opacity: 0;
+  transform: translateX(20%);
+}
+
+.gwn-aviso .icono-svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+}
+
+.gwn-aviso--info {
+  background: linear-gradient(160deg, var(--hud-pergamino-clara), var(--hud-pergamino-oscura));
+  border: 1px solid var(--hud-piedra-borde);
+  color: var(--hud-tinta);
+}
+
+.gwn-aviso--alerta {
+  background: linear-gradient(160deg, #e3c169, #a97a1c);
+  border: 1px solid var(--hud-piedra-borde);
+  color: var(--hud-tinta);
+}
+
+.gwn-aviso--peligro {
+  background: linear-gradient(160deg, #c8442f, #7a2216);
+  border: 1px solid #2a0d07;
+  color: #fbe3d6;
+  animation: gwn-entrar-aviso 0.32s ease-out forwards, gwn-parpadeo-peligro 1s ease-in-out infinite 0.32s;
+}
+
+@keyframes gwn-entrar-aviso {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes gwn-parpadeo-peligro {
+  0%,
+  100% {
+    box-shadow: 0 0 0.2rem 0 rgba(255, 90, 60, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0.9rem 0.15rem rgba(255, 90, 60, 0.85);
+  }
+}
+
+@keyframes gwn-parpadeo-suave {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* =============================== Minimapa =============================== */
+
+.gwn-minimapa {
+  left: max(0.6rem, env(safe-area-inset-left));
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  width: clamp(8.5rem, 24vw, 12.5rem);
+  aspect-ratio: 1 / 1;
+  border-radius: 0.4rem;
+  padding: 0.35rem;
+  overflow: hidden;
+}
+
+.gwn-minimapa canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.15rem;
+  cursor: crosshair;
+  image-rendering: pixelated;
+  box-shadow: inset 0 0 0.6rem rgba(0, 0, 0, 0.7);
+}
+
+/* =========================== Panel de selección =========================== */
+
+.gwn-seleccion {
+  left: 50%;
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: clamp(15rem, 46vw, 27rem);
+  min-height: clamp(4.6rem, 15vh, 6.6rem);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.gwn-seleccion:empty,
+.gwn-seleccion.gwn-oculto {
+  display: none;
+}
+
+/* --- Una sola entidad --- */
+
+.gwn-ficha {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.gwn-ficha-retrato {
+  position: relative;
+  flex: none;
+  width: clamp(3.2rem, 9vw, 4rem);
+  height: clamp(3.2rem, 9vw, 4rem);
+  border-radius: 0.35rem;
+  background: radial-gradient(circle at 35% 30%, var(--hud-piedra-clara), var(--hud-piedra-oscura));
+  border: 2px solid var(--hud-piedra-borde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0.5rem rgba(0, 0, 0, 0.6);
+}
+
+.gwn-ficha-retrato .icono-svg {
+  width: 78%;
+  height: 78%;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.6));
+}
+
+.gwn-ficha-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.gwn-ficha-nombre {
+  font-weight: 700;
+  font-size: clamp(0.78rem, 1.8vw, 0.98rem);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gwn-barra {
+  position: relative;
+  width: 100%;
+  height: 0.55rem;
+  border-radius: 0.3rem;
+  background: var(--hud-piedra-oscura);
+  border: 1px solid var(--hud-piedra-borde);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.gwn-barra-relleno {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 0.25s ease-out, background-color 0.25s;
+  will-change: transform;
+}
+
+.gwn-barra--vida .gwn-barra-relleno {
+  background: linear-gradient(180deg, var(--hud-verde-vivo), var(--hud-verde));
+}
+
+.gwn-barra--vida.gwn-barra--media .gwn-barra-relleno {
+  background: linear-gradient(180deg, #f0cf7a, var(--hud-ambar));
+}
+
+.gwn-barra--vida.gwn-barra--baja .gwn-barra-relleno {
+  background: linear-gradient(180deg, var(--hud-rojo-vivo), var(--hud-rojo));
+}
+
+.gwn-barra--progreso .gwn-barra-relleno {
+  background: linear-gradient(180deg, var(--hud-oro-vivo), var(--hud-oro));
+}
+
+.gwn-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  font-size: clamp(0.66rem, 1.5vw, 0.78rem);
+  font-weight: 600;
+}
+
+.gwn-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gwn-stats .icono-svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+/* --- Varias entidades: rejilla de retratos --- */
+
+.gwn-rejilla-retratos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(2.2rem, 6vw, 2.7rem), 1fr));
+  gap: 0.3rem;
+  max-height: clamp(5.5rem, 18vh, 7.5rem);
+  overflow-y: auto;
+  padding-right: 0.15rem;
+}
+
+.gwn-retrato-mini {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: var(--hud-toque);
+  min-height: 2.2rem;
+  border-radius: 0.3rem;
+  background: radial-gradient(circle at 35% 30%, var(--hud-piedra-clara), var(--hud-piedra-oscura));
+  border: 2px solid var(--hud-piedra-borde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: inset 0 0 0.4rem rgba(0, 0, 0, 0.6);
+}
+
+.gwn-retrato-mini:hover,
+.gwn-retrato-mini:focus-visible {
+  border-color: var(--hud-oro);
+}
+
+.gwn-retrato-mini.gwn-activo {
+  border-color: var(--hud-bronce-brillo);
+  box-shadow: 0 0 0 2px var(--hud-oro), inset 0 0 0.4rem rgba(0, 0, 0, 0.6);
+}
+
+.gwn-retrato-mini .icono-svg {
+  width: 68%;
+  height: 68%;
+}
+
+.gwn-retrato-mini-vida {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 10%;
+  height: 0.24rem;
+  border-radius: 0.15rem;
+  background: var(--hud-piedra-oscura);
+  overflow: hidden;
+}
+
+.gwn-retrato-mini-vida span {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(180deg, var(--hud-verde-vivo), var(--hud-verde));
+}
+
+/* --- Edificio productor: cola --- */
+
+.gwn-cola {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.gwn-cola-item {
+  position: relative;
+  width: clamp(2.4rem, 6.4vw, 2.9rem);
+  height: clamp(2.4rem, 6.4vw, 2.9rem);
+  min-width: var(--hud-toque);
+  min-height: var(--hud-toque);
+  border-radius: 0.3rem;
+  background: radial-gradient(circle at 35% 30%, var(--hud-piedra-clara), var(--hud-piedra-oscura));
+  border: 2px solid var(--hud-piedra-borde);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+}
+
+.gwn-cola-item .icono-svg {
+  width: 70%;
+  height: 70%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.gwn-cola-item-progreso {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.3rem;
+  background: var(--hud-piedra-oscura);
+}
+
+.gwn-cola-item-progreso span {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(180deg, var(--hud-oro-vivo), var(--hud-oro));
+}
+
+.gwn-cola-item-cancelar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(90, 10, 5, 0.72);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.gwn-cola-item-cancelar .icono-svg {
+  position: static;
+  transform: none;
+  width: 55%;
+  height: 55%;
+}
+
+.gwn-cola-item:hover .gwn-cola-item-cancelar,
+.gwn-cola-item:focus-visible .gwn-cola-item-cancelar {
+  opacity: 1;
+}
+
+.gwn-cola-vacia {
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* =========================== Carta de comandos =========================== */
+
+.gwn-comandos {
+  right: max(0.6rem, env(safe-area-inset-right));
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  padding: 0.45rem;
+  border-radius: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: clamp(0.28rem, 1vw, 0.45rem);
+  width: clamp(12rem, 30vw, 16.5rem);
+}
+
+.gwn-boton-comando {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: var(--hud-toque);
+  min-height: var(--hud-toque);
+  border-radius: 0.3rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: radial-gradient(circle at 32% 28%, var(--hud-piedra-clara), var(--hud-piedra-media) 60%, var(--hud-piedra-oscura));
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.gwn-boton-comando:hover:not(:disabled) {
+  border-color: var(--hud-oro);
+}
+
+.gwn-boton-comando:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
+}
+
+.gwn-boton-comando:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.6) brightness(0.6);
+}
+
+.gwn-boton-comando .icono-svg {
+  width: 68%;
+  height: 68%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+
+.gwn-boton-tecla {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--hud-oro-vivo);
+  text-shadow: 0 1px 1px #000;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.gwn-boton-coste {
+  position: absolute;
+  bottom: 1px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.3rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--hud-pergamino-clara);
+  text-shadow: 0 1px 1px #000;
+  pointer-events: none;
+}
+
+.gwn-boton-comando--vacio {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.gwn-comandos-titulo {
+  grid-column: 1 / -1;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hud-pergamino-clara);
+  text-shadow: 0 1px 1px #000;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.1rem;
+}
+
+/* ================================ Menús ================================ */
+
+.gwn-menu-capa {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(30, 20, 10, 0.72), rgba(6, 4, 2, 0.92));
+  backdrop-filter: blur(2px);
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+
+.gwn-menu-capa.gwn-oculto {
+  display: none;
+}
+
+.gwn-menu-tarjeta {
+  width: min(92vw, 26rem);
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 0.6rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.gwn-menu-titulo {
+  font-size: clamp(1.1rem, 3.4vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--hud-tinta);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+  border-bottom: 2px solid var(--hud-piedra-borde);
+  padding-bottom: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.gwn-menu-titulo .icono-svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.gwn-menu-boton {
+  min-height: var(--hud-toque);
+  border-radius: 0.4rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: linear-gradient(180deg, var(--hud-bronce-brillo), var(--hud-bronce) 55%, var(--hud-bronce-oscuro));
+  color: var(--hud-tinta);
+  font-weight: 700;
+  font-size: clamp(0.85rem, 2.4vw, 1rem);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 0.55rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  transition: transform 0.08s ease;
+}
+
+.gwn-menu-boton:hover {
+  filter: brightness(1.08);
+}
+
+.gwn-menu-boton:active {
+  transform: translateY(1px);
+}
+
+.gwn-menu-boton--peligro {
+  background: linear-gradient(180deg, #e26a52, var(--hud-rojo) 55%, var(--hud-rojo-oscuro));
+  color: #fbe3d6;
+}
+
+.gwn-menu-boton--secundario {
+  background: linear-gradient(180deg, var(--hud-pergamino-clara), var(--hud-pergamino-oscura));
+}
+
+.gwn-menu-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: clamp(0.72rem, 2vw, 0.85rem);
+  font-weight: 600;
+  color: var(--hud-tinta);
+}
+
+.gwn-menu-fila input[type='range'] {
+  width: 100%;
+  accent-color: var(--hud-bronce);
+}
+
+.gwn-menu-fila select {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--hud-piedra-borde);
+  background: var(--hud-pergamino-clara);
+  color: var(--hud-tinta);
+}
+
+.gwn-menu-toggle {
+  position: relative;
+  width: 2.6rem;
+  height: 1.5rem;
+  flex: none;
+  border-radius: 1rem;
+  border: 1px solid var(--hud-piedra-borde);
+  background: var(--hud-piedra-media);
+  cursor: pointer;
+}
+
+.gwn-menu-toggle::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--hud-bronce-brillo), var(--hud-bronce));
+  transition: transform 0.15s ease;
+}
+
+.gwn-menu-toggle.gwn-activo::after {
+  transform: translateX(1.1rem);
+}
+
+.gwn-menu-toggle.gwn-activo {
+  background: var(--hud-verde);
+}
+
+.gwn-menu-stats {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: clamp(0.68rem, 1.9vw, 0.8rem);
+}
+
+.gwn-menu-stats th,
+.gwn-menu-stats td {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  text-align: right;
+}
+
+.gwn-menu-stats th:first-child,
+.gwn-menu-stats td:first-child {
+  text-align: left;
+}
+
+.gwn-menu-stats thead th {
+  color: var(--hud-bronce-oscuro);
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+
+.gwn-menu-resultado {
+  text-align: center;
+  font-size: clamp(0.9rem, 2.8vw, 1.1rem);
+  font-weight: 700;
+}
+
+.gwn-menu-resultado--victoria {
+  color: #3a6b1e;
+}
+
+.gwn-menu-resultado--derrota {
+  color: var(--hud-rojo-oscuro);
+}
+
+/* ============================== Contador de fps ============================== */
+
+.gwn-fps {
+  top: max(0.5rem, env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--hud-oro-vivo);
+  background: var(--hud-tinta-panel);
+  border: 1px solid var(--hud-piedra-borde);
+}
+
+/* =============================== Táctil y móvil =============================== */
+
+@media (pointer: coarse) {
+  :root {
+    --hud-toque: 48px;
+  }
+  .gwn-boton-comando,
+  .gwn-retrato-mini,
+  .gwn-cola-item {
+    min-width: var(--hud-toque);
+    min-height: var(--hud-toque);
+  }
+  .gwn-cola-item-cancelar {
+    /* En táctil no hay :hover: el aspa queda siempre visible y tenue. */
+    opacity: 0.9;
+    background: rgba(90, 10, 5, 0.45);
+  }
+}
+
+/* Móvil apaisado (844x390 y similares): paneles más compactos, todo cabe. */
+@media (max-width: 900px), (max-height: 480px) {
+  .gwn-recursos {
+    gap: 0.5rem;
+    padding: 0.3rem 0.6rem;
+    border-width: 8px;
+  }
+  .gwn-panel {
+    border-width: 8px;
+  }
+  .gwn-minimapa {
+    width: clamp(5.4rem, 20vw, 7.2rem);
+  }
+  .gwn-seleccion {
+    width: clamp(11rem, 40vw, 16rem);
+    min-height: 3.6rem;
+    padding: 0.35rem 0.5rem;
+  }
+  .gwn-comandos {
+    width: clamp(9rem, 32vw, 11.5rem);
+    padding: 0.3rem;
+  }
+  .gwn-avisos {
+    top: 2.6rem;
+    max-width: 60vw;
+  }
+  .gwn-ficha-retrato {
+    width: 2.6rem;
+    height: 2.6rem;
+  }
+}
+
+/* Pantallas muy estrechas en vertical: la barra de recursos se contrae. */
+@media (max-width: 420px) {
+  .gwn-recurso--reloj {
+    display: none;
+  }
+}

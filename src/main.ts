@@ -9,6 +9,7 @@ import { crearVegetacion } from './render/vegetacion';
 import { crearIluminacion } from './render/iluminacion';
 import { crearRenderEntidades } from './render/entidades';
 import { crearFabricaModelos } from './render/modelos/fabrica';
+import { crearGestorEfectos } from './render/efectos/gestor';
 import { generarMapa } from './sim/generador';
 import { Mundo } from './sim/mundo';
 import { poblarMapaInicial } from './sim/fabrica';
@@ -17,12 +18,14 @@ import { Simulacion } from './sim/sistemas/orquestador';
 import { enchufarEvitacion } from './sim/enlaceEvitacion';
 import { sesion } from './estado/sesion';
 import * as ordenes from './sim/ordenes';
-import { Bando } from './sim/tipos';
+import { encolarUnidad, cancelarProduccion } from './sim/sistemas/produccion';
+import { crearHud, type ComandoInterfaz } from './ui/hud';
+import { crearEntrada } from './input/entrada';
+import { Bando, Clase, indiceDe } from './sim/tipos';
 import {
   ALTO_MAPA,
   ANCHO_MAPA,
   HERCIOS_SIMULACION,
-  VELOCIDAD_CAMARA,
 } from './sim/constantes';
 
 /**
@@ -125,10 +128,36 @@ async function arrancar(): Promise<void> {
   const inicioJugador = generado.inicios[0]!;
   camara.saltarA(inicioJugador.cx + 2, inicioJugador.cz + 2);
 
-  progreso(0.9, 'Convocando a los ejércitos…');
+  progreso(0.85, 'Convocando a los ejércitos…');
   await respirar();
 
-  const teclas = conectarControles(camara, renderizador);
+  const capaInterfaz = document.getElementById('capa-ui') as HTMLElement;
+
+  const entrada = crearEntrada({
+    lienzo,
+    camara,
+    mundo,
+    capaInterfaz,
+  });
+
+  const hud = crearHud(capaInterfaz, mundo);
+  hud.fijarCamara(camara);
+  hud.alPulsarMinimapa((x, z) => entrada.alPulsarMinimapa(x, z));
+  hud.alPulsarComando((comando) => ejecutarComandoInterfaz(mundo, comando, entrada));
+
+  const efectos = crearGestorEfectos(
+    escena,
+    camara.nucleo,
+    mundo,
+    generado.mapa,
+    sesion.bandoJugador,
+    sesion,
+    renderizador,
+    { ...renderizador.calidad, postProceso: false },
+  );
+
+  progreso(0.95, 'Desplegando el mando…');
+  await respirar();
 
   const bucle = new BucleJuego({
     hercios: HERCIOS_SIMULACION,
@@ -141,7 +170,7 @@ async function arrancar(): Promise<void> {
       sesion.caducarAvisos();
     },
     alRenderizar: (dtReal, alfa) => {
-      teclas.aplicar(dtReal);
+      entrada.actualizar(dtReal);
       camara.actualizar(dtReal);
       iluminacion.enfocarSombras(camara.objetivoX, camara.objetivoZ);
       iluminacion.actualizar(dtReal);
@@ -149,8 +178,10 @@ async function arrancar(): Promise<void> {
       cielo.actualizar(dtReal);
       vegetacion.actualizar(dtReal);
       renderEntidades.actualizar(alfa, dtReal);
+      efectos.actualizar(dtReal, alfa);
+      hud.actualizar(mundo, dtReal);
       renderizador.reiniciarEstadisticas();
-      renderizador.nucleo.render(escena, camara.nucleo);
+      efectos.renderizar();
       renderizador.ajustarResolucion(bucle.msRender + bucle.msSimulacion, dtReal);
     },
   });
@@ -158,6 +189,7 @@ async function arrancar(): Promise<void> {
   window.addEventListener('resize', () => {
     renderizador.redimensionar();
     camara.redimensionar(renderizador.relacionAspecto);
+    efectos.redimensionar(renderizador.ancho, renderizador.alto);
   });
 
   // Al volver de segundo plano no queremos que la simulación intente recuperar
@@ -181,77 +213,64 @@ async function arrancar(): Promise<void> {
     juego: {
       mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes,
       terreno, agua, cielo, vegetacion, iluminacion, fabricaModelos, renderEntidades,
+      entrada, hud, efectos,
     },
   });
 }
 
-/** Controles provisionales de cámara: teclado, rueda y arrastre. */
-function conectarControles(
-  camara: CamaraJuego,
-  renderizador: Renderizador,
-): { aplicar(dt: number): void } {
-  const pulsadas = new Set<string>();
+/**
+ * Traduce un `ComandoInterfaz` (lo que anuncia el HUD al pulsar un botón) a una
+ * llamada real sobre el mundo. Ni `hud.ts` ni sus paneles tocan la simulación
+ * directamente —solo anuncian la intención—, así que este es el único sitio que
+ * decide qué significa de verdad «entrenar un arquero» o «reparar».
+ */
+function ejecutarComandoInterfaz(
+  mundo: Mundo,
+  comando: ComandoInterfaz,
+  entrada: ReturnType<typeof crearEntrada>,
+): void {
+  switch (comando.clase) {
+    case 'entrenar': {
+      const edificio = edificioSeleccionadoPropio(mundo);
+      if (edificio !== null) encolarUnidad(mundo, edificio, comando.tipoUnidad);
+      break;
+    }
+    case 'construir':
+      sesion.iniciarColocacion(comando.tipoEdificio);
+      break;
+    case 'cancelarCola': {
+      const edificio = edificioSeleccionadoPropio(mundo);
+      if (edificio !== null) cancelarProduccion(mundo, edificio, comando.indice);
+      break;
+    }
+    case 'accion':
+      switch (comando.accion) {
+        case 'detener':
+          ordenes.cancelarOrden(mundo, sesion.seleccion, sesion.bandoJugador);
+          break;
+        case 'mantenerPosicion':
+          ordenes.ordenarMantenerPosicion(mundo, sesion.seleccion, sesion.bandoJugador);
+          break;
+        case 'atacar':
+        case 'patrullar':
+        case 'reparar':
+        case 'recolectar':
+          entrada.activarModoObjetivo(comando.accion);
+          break;
+      }
+      break;
+  }
+}
 
-  window.addEventListener('keydown', (evento) => {
-    pulsadas.add(evento.code);
-    if (evento.code === 'Space') camara.reiniciarGiro();
-  });
-  window.addEventListener('keyup', (evento) => pulsadas.delete(evento.code));
-
-  renderizador.lienzo.addEventListener(
-    'wheel',
-    (evento) => {
-      evento.preventDefault();
-      camara.acercar(evento.deltaY > 0 ? 1.12 : 0.89);
-    },
-    { passive: false },
-  );
-
-  let arrastrando = false;
-  let ultimoX = 0;
-  let ultimoY = 0;
-
-  renderizador.lienzo.addEventListener('pointerdown', (evento) => {
-    if (evento.button !== 2 && evento.button !== 1) return;
-    arrastrando = true;
-    ultimoX = evento.clientX;
-    ultimoY = evento.clientY;
-    renderizador.lienzo.setPointerCapture(evento.pointerId);
-  });
-
-  renderizador.lienzo.addEventListener('pointermove', (evento) => {
-    if (!arrastrando) return;
-    const escalaMundo = camara.distancia * 0.0022;
-    camara.desplazar(
-      -(evento.clientX - ultimoX) * escalaMundo,
-      -(evento.clientY - ultimoY) * escalaMundo,
-    );
-    ultimoX = evento.clientX;
-    ultimoY = evento.clientY;
-  });
-
-  const soltar = (): void => {
-    arrastrando = false;
-  };
-  renderizador.lienzo.addEventListener('pointerup', soltar);
-  renderizador.lienzo.addEventListener('pointercancel', soltar);
-  renderizador.lienzo.addEventListener('contextmenu', (evento) => evento.preventDefault());
-
-  return {
-    aplicar(dt: number): void {
-      let dx = 0;
-      let dz = 0;
-      if (pulsadas.has('KeyW') || pulsadas.has('ArrowUp')) dz -= 1;
-      if (pulsadas.has('KeyS') || pulsadas.has('ArrowDown')) dz += 1;
-      if (pulsadas.has('KeyA') || pulsadas.has('ArrowLeft')) dx -= 1;
-      if (pulsadas.has('KeyD') || pulsadas.has('ArrowRight')) dx += 1;
-      if (dx === 0 && dz === 0) return;
-
-      const norma = Math.hypot(dx, dz);
-      const paso = (VELOCIDAD_CAMARA * dt) / norma;
-      camara.desplazar(dx * paso, dz * paso);
-    },
-  };
+/** La única entidad seleccionada, si es un edificio propio; si no, null. */
+function edificioSeleccionadoPropio(mundo: Mundo) {
+  if (sesion.seleccion.length !== 1) return null;
+  const entidad = sesion.seleccion[0]!;
+  if (!mundo.esValida(entidad)) return null;
+  const i = indiceDe(entidad);
+  if (mundo.clase[i] !== Clase.EDIFICIO) return null;
+  if (mundo.bando[i] !== sesion.bandoJugador) return null;
+  return entidad;
 }
 
 arrancar().catch(fallar);

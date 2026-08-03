@@ -338,6 +338,10 @@ export class DetectorGestos {
   actualizar(tiempoMs: number): void {
     const primario = this.primario;
     if (!primario || primario.esRaton || primario.modo !== null || primario.largaDisparada) return;
+    // Con un segundo dedo ya en pantalla estamos en modo pellizco/rotación: si el
+    // primero llevaba quieto un rato antes de que aterrizara el segundo, no debe
+    // colarse una pulsación larga (orden contextual o caja) en mitad del gesto.
+    if (this.secundario) return;
     if (tiempoMs - primario.tInicio < MS_PULSACION_LARGA) return;
 
     primario.largaDisparada = true;
