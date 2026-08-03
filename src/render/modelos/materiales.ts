@@ -213,10 +213,17 @@ export class BancoMateriales {
 function crearMaterial(acabado: Acabado): THREE.MeshStandardMaterial {
   switch (acabado) {
     case 'metal':
+      // Corrección: con `metalness` por encima de 0.9 y sin mapa de entorno —la
+      // escena solo tiene sol, relleno y hemisférica, ver `iluminacion.ts`—, el
+      // término difuso desaparece casi del todo y cualquier pieza metálica se ve
+      // negra salvo en el punto exacto del brillo especular. Se comprobó con el
+      // banco de modelos: cascos y espadas quedaban ilegibles. Bajar la metalicidad
+      // y subir un poco la rugosidad conserva el aspecto de acero bajo las mismas
+      // tres luces, sin necesitar iluminación basada en imágenes.
       return new THREE.MeshStandardMaterial({
         vertexColors: true,
-        metalness: 0.92,
-        roughness: 0.3,
+        metalness: 0.55,
+        roughness: 0.4,
         flatShading: false,
         name: 'mat-metal',
       });
