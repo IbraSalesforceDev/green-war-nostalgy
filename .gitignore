@@ -3,3 +3,4 @@ dist/
 capturas/
 *.local
 .DS_Store
+dist-portatil/

@@ -3,14 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "RTS isométrico en Three.js inspirado en los clásicos de estrategia en tiempo real",
+  "description": "RTS isom\u00e9trico en Three.js inspirado en los cl\u00e1sicos de estrategia en tiempo real",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:portatil": "EMPAQUETADO_PORTATIL=1 vite build && node tools/empaquetar.mjs && node tools/empaquetar.mjs --cuerpo"
   },
   "dependencies": {
     "three": "^0.185.1"
