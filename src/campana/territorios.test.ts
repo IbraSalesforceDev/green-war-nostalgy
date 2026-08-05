@@ -1,0 +1,168 @@
+import { describe, expect, it } from 'vitest';
+import { TERRITORIOS, TERRITORIO_POR_ID, capitalDe, sonVecinos, territorio } from './territorios';
+import { BANDOS_EN_GUERRA, BandoCampana, type IdTerritorio } from './tipos';
+
+/**
+ * El mapa está escrito a mano, territorio a territorio. Esa clase de dato es
+ * justo donde se cuelan las erratas que no dan error de compilación pero rompen
+ * la partida: una frontera declarada en un sentido y no en el otro, un territorio
+ * al que no se llega desde ninguna parte, un bando con dos capitales.
+ *
+ * Estas pruebas no comprueban que el mapa sea «bonito» —eso se mira—, sino que
+ * cumple las invariantes de las que dependen la IA y las reglas de movimiento.
+ */
+
+describe('el mapa de la campaña', () => {
+  it('no repite identificadores', () => {
+    const vistos = new Set<IdTerritorio>();
+    for (const t of TERRITORIOS) {
+      expect(vistos.has(t.id), `id duplicado: ${t.id}`).toBe(false);
+      vistos.add(t.id);
+    }
+    expect(TERRITORIO_POR_ID.size).toBe(TERRITORIOS.length);
+  });
+
+  it('solo declara fronteras con territorios que existen', () => {
+    for (const t of TERRITORIOS) {
+      for (const vecino of t.vecinos) {
+        expect(TERRITORIO_POR_ID.has(vecino), `${t.id} limita con ${vecino}, que no existe`).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it('nunca se declara vecino de sí mismo', () => {
+    for (const t of TERRITORIOS) {
+      expect(t.vecinos.includes(t.id), `${t.id} limita consigo mismo`).toBe(false);
+    }
+  });
+
+  it('tiene todas las fronteras declaradas en los dos sentidos', () => {
+    // Si A limita con B pero B no limita con A, un ejército puede entrar en un
+    // territorio y quedarse encerrado sin poder volver por donde vino.
+    for (const t of TERRITORIOS) {
+      for (const vecino of t.vecinos) {
+        expect(
+          sonVecinos(vecino, t.id),
+          `${t.id} limita con ${vecino}, pero ${vecino} no limita con ${t.id}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('no repite un mismo vecino dos veces', () => {
+    for (const t of TERRITORIOS) {
+      expect(new Set(t.vecinos).size, `${t.id} repite alguna frontera`).toBe(t.vecinos.length);
+    }
+  });
+
+  it('forma un mapa conexo: se llega a todas partes por tierra', () => {
+    // Un territorio inalcanzable sería imposible de conquistar y la partida no
+    // podría terminar nunca por conquista total.
+    const alcanzados = new Set<IdTerritorio>([TERRITORIOS[0]!.id]);
+    const pendientes: IdTerritorio[] = [TERRITORIOS[0]!.id];
+    while (pendientes.length > 0) {
+      const actual = pendientes.pop()!;
+      for (const vecino of territorio(actual).vecinos) {
+        if (alcanzados.has(vecino)) continue;
+        alcanzados.add(vecino);
+        pendientes.push(vecino);
+      }
+    }
+    const inalcanzables = TERRITORIOS.filter((t) => !alcanzados.has(t.id)).map((t) => t.id);
+    expect(inalcanzables, 'territorios aislados del resto del mapa').toEqual([]);
+  });
+
+  it('da a cada bando una capital y solo una', () => {
+    for (const bando of BANDOS_EN_GUERRA) {
+      const capitales = TERRITORIOS.filter((t) => t.capitalDe === bando);
+      expect(capitales.length, `capitales del bando ${bando}`).toBe(1);
+      // La capital tiene que empezar en manos de su propio bando: si no, la
+      // partida arrancaría ya perdida.
+      expect(capitales[0]!.duenoInicial).toBe(bando);
+      expect(capitalDe(bando).id).toBe(capitales[0]!.id);
+    }
+  });
+
+  it('reparte el mapa a partes iguales y sin tierra de nadie', () => {
+    const porBando = new Map<BandoCampana, number>();
+    for (const t of TERRITORIOS) {
+      porBando.set(t.duenoInicial, (porBando.get(t.duenoInicial) ?? 0) + 1);
+    }
+    expect(porBando.get(BandoCampana.NINGUNO) ?? 0).toBe(0);
+    expect(porBando.get(BandoCampana.UNION)).toBe(porBando.get(BandoCampana.CONFEDERACION));
+  });
+
+  it('arranca con las rentas equilibradas', () => {
+    // Una diferencia de renta inicial es una ventaja que se compone turno a turno.
+    // Puede haberla algún día, pero tiene que ser una decisión, no un descuido.
+    const renta = (bando: BandoCampana): number =>
+      TERRITORIOS.filter((t) => t.duenoInicial === bando).reduce((suma, t) => suma + t.renta, 0);
+    expect(renta(BandoCampana.UNION)).toBe(renta(BandoCampana.CONFEDERACION));
+  });
+
+  it('deja pasos entre el Norte y el Sur, pero pocos', () => {
+    // El frente es el corazón de la partida: sin pasos no habría guerra, y con
+    // demasiados no habría nada que defender.
+    const pasos: string[] = [];
+    for (const t of TERRITORIOS) {
+      for (const vecino of t.vecinos) {
+        if (t.id > vecino) continue; // cada frontera se cuenta una sola vez
+        if (territorio(vecino).duenoInicial !== t.duenoInicial) pasos.push(`${t.id}-${vecino}`);
+      }
+    }
+    expect(pasos.length).toBeGreaterThanOrEqual(4);
+    expect(pasos.length).toBeLessThanOrEqual(9);
+  });
+
+  it('da a cada bando por dónde recibir refuerzos', () => {
+    for (const bando of BANDOS_EN_GUERRA) {
+      const puertos = TERRITORIOS.filter((t) => t.duenoInicial === bando && t.puerto);
+      expect(puertos.length, `puertos del bando ${bando}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('dibuja cada territorio con un polígono cerrable', () => {
+    for (const t of TERRITORIOS) {
+      expect(t.contorno.length, `contorno de ${t.id}`).toBeGreaterThanOrEqual(3);
+      for (const [x, y] of t.contorno) {
+        expect(Number.isFinite(x) && Number.isFinite(y), `vértice inválido en ${t.id}`).toBe(true);
+      }
+    }
+  });
+
+  it('planta la ficha de cada territorio dentro de su propio contorno', () => {
+    // El centro es donde se dibuja el ejército y donde se pulsa para seleccionarlo.
+    // Si cae fuera del polígono, la ficha aparece flotando sobre el vecino.
+    for (const t of TERRITORIOS) {
+      expect(puntoEnPoligono(t.x, t.y, t.contorno), `el centro de ${t.id} cae fuera`).toBe(true);
+    }
+  });
+
+  it('mantiene el Norte al norte y el Sur al sur', () => {
+    // La IA usa la coordenada `y` para saber hacia dónde está el enemigo. Si los
+    // territorios de un bando estuvieran entreverados, avanzaría en círculos.
+    const norte = TERRITORIOS.filter((t) => t.duenoInicial === BandoCampana.UNION);
+    const sur = TERRITORIOS.filter((t) => t.duenoInicial === BandoCampana.CONFEDERACION);
+    const masAlSurDelNorte = Math.min(...norte.map((t) => t.y));
+    const masAlNorteDelSur = Math.max(...sur.map((t) => t.y));
+    expect(masAlSurDelNorte).toBeGreaterThan(masAlNorteDelSur);
+  });
+});
+
+/** Cruce de rayos clásico: cuenta cortes con el polígono hacia la derecha. */
+function puntoEnPoligono(
+  x: number,
+  y: number,
+  poligono: readonly (readonly [number, number])[],
+): boolean {
+  let dentro = false;
+  for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
+    const [xi, yi] = poligono[i]!;
+    const [xj, yj] = poligono[j]!;
+    const cruza = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (cruza) dentro = !dentro;
+  }
+  return dentro;
+}
