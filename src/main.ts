@@ -10,6 +10,9 @@ import { crearIluminacion } from './render/iluminacion';
 import { crearRenderEntidades } from './render/entidades';
 import { crearFabricaModelos } from './render/modelos/fabrica';
 import { crearGestorEfectos } from './render/efectos/gestor';
+import { crearMotorAudio } from './audio/motor';
+import { crearSistemaAudio } from './audio/efectos';
+import { bus } from './core/events';
 import { generarMapa } from './sim/generador';
 import { Mundo } from './sim/mundo';
 import { poblarMapaInicial } from './sim/fabrica';
@@ -156,6 +159,12 @@ async function arrancar(): Promise<void> {
     renderizador.calidad,
   );
 
+  // El contexto de audio arranca suspendido: los navegadores bloquean el sonido
+  // hasta el primer gesto del usuario. `desbloquearConGesto` lo resuelve solo.
+  const motorAudio = crearMotorAudio();
+  motorAudio.desbloquearConGesto();
+  const audio = crearSistemaAudio(motorAudio, mundo, sesion.bandoJugador, bus);
+
   progreso(0.95, 'Desplegando el mando…');
   await respirar();
 
@@ -213,7 +222,7 @@ async function arrancar(): Promise<void> {
     juego: {
       mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes,
       terreno, agua, cielo, vegetacion, iluminacion, fabricaModelos, renderEntidades,
-      entrada, hud, efectos,
+      entrada, hud, efectos, motorAudio, audio,
     },
   });
 }
