@@ -153,7 +153,7 @@ async function arrancar(): Promise<void> {
     sesion.bandoJugador,
     sesion,
     renderizador,
-    { ...renderizador.calidad, postProceso: false },
+    renderizador.calidad,
   );
 
   progreso(0.95, 'Desplegando el mando…');
