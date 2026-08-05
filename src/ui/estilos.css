@@ -921,3 +921,142 @@
     display: none;
   }
 }
+
+/* ============================ Mapa de campaña ============================ */
+
+/* La barra del turno vive donde vivía la de recursos: arriba y centrada, que es
+   donde ya sabe mirar quien viene del campo de batalla. */
+.gwn-campana-barra {
+  top: max(0.5rem, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* El turno propio se distingue del ajeno por color, no solo por texto: es lo
+   primero que hay que saber al mirar la pantalla. */
+.gwn-campana-turno-propio .gwn-recurso-valor {
+  color: var(--hud-oro-vivo);
+}
+
+.gwn-campana-diario {
+  position: absolute;
+  top: calc(max(0.5rem, env(safe-area-inset-top)) + 3.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  pointer-events: none;
+  width: min(92vw, 30rem);
+}
+
+.gwn-campana-nota {
+  padding: 0.28rem 0.7rem;
+  border-radius: 0.3rem;
+  background: var(--hud-tinta-panel);
+  border: 1px solid var(--hud-piedra-borde);
+  color: var(--hud-pergamino);
+  font-size: clamp(0.7rem, 2.4vw, 0.82rem);
+  text-align: center;
+  text-shadow: 0 1px 1px #000;
+  transition: opacity 0.6s ease;
+}
+
+.gwn-campana-nota--bueno {
+  color: #b9e6a0;
+}
+
+.gwn-campana-nota--malo {
+  color: #f0a89a;
+}
+
+.gwn-campana-nota--ida {
+  opacity: 0;
+}
+
+.gwn-campana-ejercito {
+  left: max(0.6rem, env(safe-area-inset-left));
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  width: min(60vw, 15rem);
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.4rem;
+}
+
+.gwn-campana-ejercito-titulo {
+  font-weight: 700;
+  font-size: clamp(0.85rem, 3vw, 1rem);
+  letter-spacing: 0.04em;
+  color: var(--hud-tinta);
+}
+
+.gwn-campana-ejercito-sub {
+  font-size: 0.7rem;
+  opacity: 0.75;
+  margin-bottom: 0.4rem;
+}
+
+.gwn-campana-armas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.gwn-campana-arma {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.gwn-campana-arma-nombre {
+  flex: 1;
+}
+
+.gwn-campana-arma-cifra {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gwn-campana-boton-turno {
+  position: absolute;
+  right: max(0.6rem, env(safe-area-inset-right));
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--hud-toque);
+  padding: 0 1rem;
+  border-radius: 0.35rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: linear-gradient(180deg, #f0cf7a 0%, #d29c30 45%, #8f6416 100%);
+  color: #2b1d0e;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: clamp(0.78rem, 2.6vw, 0.9rem);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+
+.gwn-campana-boton-turno:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.gwn-campana-boton-turno:disabled {
+  cursor: default;
+  filter: grayscale(0.7) brightness(0.65);
+}
+
+/* Mientras la máquina piensa, el botón late para que se note que el juego no se
+   ha quedado colgado. */
+.gwn-campana-boton-turno--espera {
+  animation: gwn-latido 1.1s ease-in-out infinite;
+}
+
+@keyframes gwn-latido {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
