@@ -118,6 +118,10 @@ export interface GestorEntrada {
    * consume, exactamente igual que si el jugador hubiera pulsado la tecla A o P.
    */
   activarModoObjetivo(modo: 'atacar' | 'patrullar' | 'reparar' | 'recolectar'): void;
+  /** Modo de espera de objetivo activo ahora mismo, o `null` si no hay ninguno. */
+  readonly modoObjetivoActivo: 'atacar' | 'patrullar' | 'reparar' | 'recolectar' | null;
+  /** Preferencia del menú de opciones: 1 = velocidad normal. */
+  fijarVelocidadCamara(multiplicador: number): void;
   /** Desengancha todos los listeners del DOM. */
   liberar(): void;
 }
@@ -127,6 +131,10 @@ export interface OpcionesEntrada {
   camara: CamaraJuego;
   mundo: Mundo;
   capaInterfaz: HTMLElement;
+  /** Escape sin nada que cancelar en la jugabilidad: normalmente, alternar la pausa. */
+  alEscapeVacio?: () => void;
+  /** Si hay un menú abierto, Escape no cancela nada de la jugabilidad: es para cerrarlo. */
+  hayMenuAbierto?: () => boolean;
 }
 
 // --- Escritorio auxiliar reutilizado, sin reservas por evento ---
@@ -139,6 +147,8 @@ export function crearEntrada(opciones: OpcionesEntrada): GestorEntrada {
 
   const controlCamara = new ControlCamara(camara);
   const teclado = new ControlTeclado(camara, controlCamara);
+  if (opciones.alEscapeVacio) teclado.fijarAlEscapeVacio(opciones.alEscapeVacio);
+  if (opciones.hayMenuAbierto) teclado.fijarConsultaMenuAbierto(opciones.hayMenuAbierto);
 
   let shiftActivo = false;
   let ctrlActivo = false;
@@ -430,6 +440,12 @@ export function crearEntrada(opciones: OpcionesEntrada): GestorEntrada {
     },
     activarModoObjetivo(modo: 'atacar' | 'patrullar' | 'reparar' | 'recolectar'): void {
       teclado.activarModoObjetivo(modo);
+    },
+    get modoObjetivoActivo(): 'atacar' | 'patrullar' | 'reparar' | 'recolectar' | null {
+      return teclado.modoObjetivoActivo;
+    },
+    fijarVelocidadCamara(multiplicador: number): void {
+      controlCamara.fijarMultiplicadorVelocidad(multiplicador);
     },
     liberar(): void {
       lienzo.removeEventListener('pointerdown', alPointerDown);

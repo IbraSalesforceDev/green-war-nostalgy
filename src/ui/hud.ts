@@ -6,7 +6,7 @@ import { TipoEdificio, TipoUnidad } from '../sim/tipos';
 import { crearAvisos } from './avisos';
 import { crearBarraRecursos } from './barraRecursos';
 import { crearCartaComandos } from './cartaComandos';
-import { crearMenus } from './menus';
+import { crearMenus, type Menus } from './menus';
 import { crearMinimapa } from './minimapa';
 import { crearPanelSeleccion } from './panelSeleccion';
 import './estilos.css';
@@ -75,6 +75,12 @@ export interface Hud {
   fijarCamara(camara: CamaraJuego): void;
   alPulsarMinimapa(cb: (x: number, z: number) => void): void;
   alPulsarComando(cb: (comando: ComandoInterfaz) => void): void;
+  /**
+   * Pausa, opciones y fin de partida. El HUD es quien monta y escala el menú
+   * en el DOM (vive en el mismo `raiz`), pero decidir qué significa "pausar" o
+   * "rendirse" para el resto del juego es cosa de quien cablee `main.ts`.
+   */
+  readonly menus: Menus;
   liberar(): void;
 }
 
@@ -115,6 +121,8 @@ export function crearHud(contenedor: HTMLElement, mundo: Mundo): Hud {
   panelSeleccion.actualizar(mundo);
 
   return {
+    menus,
+
     actualizar(mundoActual: Mundo, dt: number): void {
       barraRecursos.actualizar(mundoActual, sesion.bandoJugador, sesion.tiempoPartida, dt);
       cartaComandos.actualizar(mundoActual);

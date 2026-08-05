@@ -64,9 +64,33 @@ export class ControlTeclado {
   private cicloObreroOcioso = -1;
   private tipoColocacionCiclo = 0;
 
+  /**
+   * Se llama cuando Escape no tuvo nada que cancelar en la jugabilidad. Quien
+   * cablea este módulo decide qué significa eso —normalmente, alternar la
+   * pausa—; el teclado no sabe nada de menús.
+   */
+  private alEscapeVacio?: () => void;
+
+  /**
+   * Si hay un menú abierto, la cascada de Escape ni se plantea cancelar nada
+   * de la jugabilidad: ese Escape es para cerrar el menú, y decidirlo es tan
+   * responsabilidad de `alEscapeVacio` como abrirlo. Sin esto, un menú recién
+   * abierto por `alEscapeVacio` en este mismo evento podría cancelarse una
+   * selección residual bajo cuerda en el próximo Escape en vez de cerrarse.
+   */
+  private hayMenuAbierto?: () => boolean;
+
   constructor(camara: CamaraJuego, controlCamara: ControlCamara) {
     this.camara = camara;
     this.controlCamara = controlCamara;
+  }
+
+  fijarAlEscapeVacio(cb: () => void): void {
+    this.alEscapeVacio = cb;
+  }
+
+  fijarConsultaMenuAbierto(cb: () => boolean): void {
+    this.hayMenuAbierto = cb;
   }
 
   get modoObjetivoActivo(): ModoObjetivo {
@@ -110,7 +134,10 @@ export class ControlTeclado {
         this.cicloConstruccion();
         break;
       case 'Escape':
-        this.manejarEscape();
+        // Solo si no había nada de la jugabilidad que cancelar (modo de objetivo,
+        // colocación, selección) se deja pasar el Escape hacia arriba: es la
+        // señal de que le toca a la pausa, no a este cascada.
+        if (!this.manejarEscape()) this.alEscapeVacio?.();
         break;
       case 'Space':
         this.saltarAlUltimoAviso();
@@ -219,16 +246,22 @@ export class ControlTeclado {
     sesion.iniciarColocacion(this.tipoColocacionCiclo as TipoEdificio);
   }
 
-  private manejarEscape(): void {
+  /** Cancela un paso de la jugabilidad. Devuelve si de verdad canceló algo. */
+  private manejarEscape(): boolean {
+    if (this.hayMenuAbierto?.()) return false;
     if (this.modoObjetivo !== null) {
       this.modoObjetivo = null;
-      return;
+      return true;
     }
     if (sesion.colocacion.activo) {
       sesion.cancelarColocacion();
-      return;
+      return true;
     }
-    sesion.limpiarSeleccion();
+    if (sesion.seleccion.length > 0) {
+      sesion.limpiarSeleccion();
+      return true;
+    }
+    return false;
   }
 
   private saltarAlUltimoAviso(): void {

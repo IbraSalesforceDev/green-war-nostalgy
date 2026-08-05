@@ -136,14 +136,25 @@ async function arrancar(): Promise<void> {
 
   const capaInterfaz = document.getElementById('capa-ui') as HTMLElement;
 
+  // `entrada` necesita dos cosas de `hud.menus` (qué hacer cuando Escape no
+  // cancela nada de la jugabilidad, y si hay un menú abierto ahora mismo), pero
+  // `hud` necesita `entrada` ya construido para el minimapa. Se rompe el ciclo
+  // con una indirección: los callbacks que guarda `crearEntrada` se resuelven
+  // más abajo, no al registrarse.
+  let manejarEscapeVacio = (): void => {};
+  let hayMenuAbierto = (): boolean => false;
   const entrada = crearEntrada({
     lienzo,
     camara,
     mundo,
     capaInterfaz,
+    alEscapeVacio: () => manejarEscapeVacio(),
+    hayMenuAbierto: () => hayMenuAbierto(),
   });
 
   const hud = crearHud(capaInterfaz, mundo);
+  manejarEscapeVacio = () => hud.menus.alternarPausa();
+  hayMenuAbierto = () => hud.menus.estaAbierta();
   hud.fijarCamara(camara);
   hud.alPulsarMinimapa((x, z) => entrada.alPulsarMinimapa(x, z));
   hud.alPulsarComando((comando) => ejecutarComandoInterfaz(mundo, comando, entrada));
@@ -164,6 +175,33 @@ async function arrancar(): Promise<void> {
   const motorAudio = crearMotorAudio();
   motorAudio.desbloquearConGesto();
   const audio = crearSistemaAudio(motorAudio, mundo, sesion.bandoJugador, bus);
+
+  const menus = hud.menus;
+
+  // El volumen del menú es [0, 1] pero se deja margen bajo 1 para que el
+  // compresor del motor de audio siga teniendo con qué trabajar en un combate
+  // grande a volumen máximo.
+  const GANANCIA_MAESTRA_MAXIMA = 0.7;
+  function aplicarOpciones(opciones: ReturnType<typeof menus.opcionesActuales>): void {
+    motorAudio.maestro.gain.value = opciones.volumen * GANANCIA_MAESTRA_MAXIMA;
+    entrada.fijarVelocidadCamara(opciones.velocidadCamara);
+  }
+  aplicarOpciones(menus.opcionesActuales());
+  menus.alCambiarOpciones(aplicarOpciones);
+
+  // La pausa por menú y la pausa por pestaña en segundo plano son dos motivos
+  // distintos para lo mismo; si se solapan (se oculta la pestaña con el menú
+  // abierto), volver a primer plano no debe reanudar por su cuenta.
+  let pausadoPorMenu = false;
+  menus.alPausar(() => {
+    pausadoPorMenu = true;
+    bucle.pausar();
+  });
+  menus.alReanudar(() => {
+    pausadoPorMenu = false;
+    bucle.reanudar();
+  });
+  menus.alRendirse(() => simulacion.rendirse(sesion.bandoJugador));
 
   progreso(0.95, 'Desplegando el mando…');
   await respirar();
@@ -189,6 +227,7 @@ async function arrancar(): Promise<void> {
       renderEntidades.actualizar(alfa, dtReal);
       efectos.actualizar(dtReal, alfa);
       hud.actualizar(mundo, dtReal);
+      menus.actualizar(mundo, dtReal);
       renderizador.reiniciarEstadisticas();
       efectos.renderizar();
       renderizador.ajustarResolucion(bucle.msRender + bucle.msSimulacion, dtReal);
@@ -202,10 +241,11 @@ async function arrancar(): Promise<void> {
   });
 
   // Al volver de segundo plano no queremos que la simulación intente recuperar
-  // todo el tiempo perdido de golpe.
+  // todo el tiempo perdido de golpe. Si el motivo de la pausa era el menú, volver
+  // a la pestaña no debe reanudar por su cuenta: eso lo decide el jugador.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) bucle.pausar();
-    else bucle.reanudar();
+    else if (!pausadoPorMenu) bucle.reanudar();
   });
 
   bucle.iniciar();
@@ -222,7 +262,7 @@ async function arrancar(): Promise<void> {
     juego: {
       mundo, camara, escena, renderizador, bucle, generado, simulacion, buscador, sesion, ordenes,
       terreno, agua, cielo, vegetacion, iluminacion, fabricaModelos, renderEntidades,
-      entrada, hud, efectos, motorAudio, audio,
+      entrada, hud, efectos, motorAudio, audio, menus,
     },
   });
 }

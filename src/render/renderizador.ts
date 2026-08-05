@@ -31,6 +31,9 @@ export interface CalidadRender {
 
 /** Deduce la potencia del dispositivo con las pistas que da el navegador. */
 export function detectarNivel(gl: WebGL2RenderingContext | WebGLRenderingContext): NivelDispositivo {
+  const preferencia = nivelPreferidoManualmente();
+  if (preferencia) return preferencia;
+
   const esTactil = matchMedia('(pointer: coarse)').matches;
   const nucleos = navigator.hardwareConcurrency ?? 4;
   const memoria = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
@@ -48,6 +51,27 @@ export function detectarNivel(gl: WebGL2RenderingContext | WebGLRenderingContext
   if (puntos >= 4) return 'alto';
   if (puntos >= 1) return 'medio';
   return 'bajo';
+}
+
+/**
+ * Lee la calidad que el jugador haya fijado a mano en el menú de opciones
+ * (`ui/menus.ts`, misma clave de `localStorage`). 'auto' o cualquier fallo de
+ * lectura deja el resultado en manos de la detección automática de arriba: el
+ * cambio de calidad manual se aplica al recargar, no reconstruye el motor de
+ * render a mitad de partida.
+ */
+function nivelPreferidoManualmente(): NivelDispositivo | null {
+  try {
+    const crudo = localStorage.getItem('gwn-hud-opciones');
+    if (!crudo) return null;
+    const opciones = JSON.parse(crudo) as { calidadGrafica?: string };
+    if (opciones.calidadGrafica === 'bajo' || opciones.calidadGrafica === 'medio' || opciones.calidadGrafica === 'alto') {
+      return opciones.calidadGrafica;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function calidadPara(nivel: NivelDispositivo): CalidadRender {

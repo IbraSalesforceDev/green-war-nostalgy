@@ -99,6 +99,16 @@ export function crearMenus(): Menus {
   fps.textContent = '-- fps';
   raiz.appendChild(fps);
 
+  // Escape no existe en un móvil: sin este botón la pausa sería inalcanzable
+  // desde una pantalla táctil.
+  const botonPausa = document.createElement('button');
+  botonPausa.type = 'button';
+  botonPausa.className = 'gwn-boton-pausa';
+  botonPausa.setAttribute('aria-label', 'Pausa');
+  botonPausa.appendChild(elementoIcono('pausa'));
+  botonPausa.addEventListener('click', () => alternarPausaInterna());
+  raiz.appendChild(botonPausa);
+
   let opciones = cargarOpciones();
   let vistaActual: 'pausa' | 'opciones' | 'finPartida' | null = null;
 
@@ -122,6 +132,13 @@ export function crearMenus(): Menus {
   function cerrarYReanudar(): void {
     cerrarTodo();
     cbReanudar();
+  }
+
+  /** Única lógica de alternado: la usan tanto el botón táctil como el método público. */
+  function alternarPausaInterna(): void {
+    if (vistaActual === 'finPartida') return;
+    if (vistaActual) cerrarYReanudar();
+    else abrirPausaInterna();
   }
 
   function guardarOpciones(): void {
@@ -148,6 +165,11 @@ export function crearMenus(): Menus {
   function cerrarTodo(): void {
     capa.classList.add('gwn-oculto');
     vistaActual = null;
+    // El botón que se acaba de pulsar (Reanudar, Volver...) se queda con el foco.
+    // Si no se suelta, `entrada.ts` sigue viendo el teclado como "dentro de la
+    // interfaz" y las teclas de jugabilidad —incluida la propia Escape— dejan de
+    // llegar a `ControlTeclado` hasta que el jugador haga clic en el lienzo.
+    (document.activeElement as HTMLElement | null)?.blur();
   }
 
   function render(): void {
@@ -362,15 +384,13 @@ export function crearMenus(): Menus {
   }
   let ultimoResultado: Resultado | null = null;
 
-  // Escape alterna la pausa; no interfiere con el fin de partida (que no se cierra
-  // sin reiniciar) ni con el juego cuando no hay ningún menú por delante.
-  function alEscape(evento: KeyboardEvent): void {
-    if (evento.code !== 'Escape') return;
-    if (vistaActual === 'finPartida') return;
-    if (vistaActual) cerrarYReanudar();
-    else abrirPausaInterna();
-  }
-  window.addEventListener('keydown', alEscape);
+  // Escape no se escucha aquí. `ControlTeclado` es el único que reacciona a esa
+  // tecla: cancela un paso de la jugabilidad a la vez (modo de objetivo,
+  // colocación, selección) y, cuando ya no le queda nada que cancelar, llama a
+  // `alternarPausa()` (más abajo) —que abre o cierra según toque. Dos listeners
+  // independientes sobre el mismo evento fue, de hecho, un bug real: el que
+  // acababa de abrir la pausa y el que la volvía a cerrar corrían en el mismo
+  // tick, según el orden de registro, no según la intención.
 
   let acumuladorFps = 0;
   let fotogramasFps = 0;
@@ -425,9 +445,7 @@ export function crearMenus(): Menus {
     },
 
     alternarPausa(): void {
-      if (vistaActual === 'finPartida') return;
-      if (vistaActual) cerrarYReanudar();
-      else abrirPausaInterna();
+      alternarPausaInterna();
     },
 
     estaAbierta(): boolean {
@@ -468,7 +486,6 @@ export function crearMenus(): Menus {
     },
 
     liberar(): void {
-      window.removeEventListener('keydown', alEscape);
       bajaFinPartida();
       raiz.remove();
     },

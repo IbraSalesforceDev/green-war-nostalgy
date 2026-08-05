@@ -150,9 +150,16 @@ export class ControlCamara {
   private direccionTecladoX = 0;
   private direccionTecladoZ = 0;
 
+  /** Preferencia del jugador (menú de opciones), aplicada al arrastre por teclado y borde. */
+  private multiplicadorVelocidad = 1;
+
   constructor(camara: CamaraJuego) {
     this.camara = camara;
     this.distanciaSombra = camara.distancia;
+  }
+
+  fijarMultiplicadorVelocidad(multiplicador: number): void {
+    this.multiplicadorVelocidad = multiplicador;
   }
 
   // --- Arrastre (un dedo táctil o botón central del ratón) ---
@@ -302,9 +309,10 @@ export class ControlCamara {
     if (dx !== 0 || dz !== 0) {
       const longitud = Math.hypot(dx, dz);
       const factorNormalizado = longitud > 1 ? 1 / longitud : 1;
+      const velocidad = VELOCIDAD_CAMARA * this.multiplicadorVelocidad;
       this.camara.desplazar(
-        dx * factorNormalizado * VELOCIDAD_CAMARA * dt,
-        dz * factorNormalizado * VELOCIDAD_CAMARA * dt,
+        dx * factorNormalizado * velocidad * dt,
+        dz * factorNormalizado * velocidad * dt,
       );
     }
   }

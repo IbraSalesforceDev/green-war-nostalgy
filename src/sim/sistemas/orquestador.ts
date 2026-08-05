@@ -158,6 +158,24 @@ export class Simulacion {
   }
 
   /**
+   * Rendición voluntaria: el menú de pausa es la única vía de entrada. No pasa por
+   * `comprobarFinPartida` —ese método solo sabe leer presencia en el mapa, no
+   * intención— así que aquí se replican a mano los mismos dos pasos que ella deja
+   * hechos en una derrota real: marcar `derrotado` y fijar `terminada` antes de
+   * emitir el evento, para que una llamada repetida (doble clic en "Rendirse") no
+   * dispare `finPartida` dos veces.
+   */
+  rendirse(bando: Bando): void {
+    if (this.terminada) return;
+    if (!(BANDOS_JUGABLES as readonly Bando[]).includes(bando)) return;
+
+    this.mundo.estadoDe(bando).derrotado = true;
+    this.terminada = true;
+    this.ganador = bando === Bando.HUMANOS ? Bando.ORCOS : Bando.HUMANOS;
+    this.bus.emitir('finPartida', { ganador: this.ganador, motivo: 'rendicion' });
+  }
+
+  /**
    * Fin por aniquilación: un bando pierde cuando no le queda nada en el mapa. Solo se
    * considera derrotado quien alguna vez tuvo algo, para que un mundo recién creado o
    * un escenario de prueba no declare vencedor en el primer tick.
