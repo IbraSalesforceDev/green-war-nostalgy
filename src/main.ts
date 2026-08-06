@@ -1,6 +1,8 @@
 import { BucleJuego } from './core/loop';
 import { Renderizador } from './render/renderizador';
 import { crearEscenaCampana } from './campana/escena';
+import { crearEscenaBatalla, type EscenaBatalla } from './batalla/escena';
+import { PASO_BATALLA } from './batalla/batalla';
 import { crearMotorAudio } from './audio/motor';
 import './ui/estilos.css';
 
@@ -12,12 +14,15 @@ import './ui/estilos.css';
  * archivo solo decide en qué orden se construyen las cosas y quién habla con quién.
  *
  * ── Estructura del juego ─────────────────────────────────────────────────────
- * La campaña por turnos es la pantalla principal: un mapa de territorios que se
- * conquistan uno a uno. Cuando dos ejércitos chocan, la partida cede el mando a
- * una escena de acción —la batalla campal o el asalto a un fuerte— y espera su
- * veredicto para seguir. Esas escenas todavía no están montadas: de momento los
- * choques se dirimen con el modelo de fuerzas de `campana.ts`, que es el mismo
- * que usarán después para decidir quién parte con ventaja.
+ * Hay dos escenas y este fichero decide cuál manda. La campaña por turnos es la
+ * pantalla principal: un mapa de territorios que se conquistan uno a uno. Cuando
+ * dos ejércitos chocan, el mapa se congela y cede el mando a la batalla campal,
+ * que se juega en tiempo real; al terminar, su veredicto vuelve a la campaña y
+ * el turno sigue donde lo dejó.
+ *
+ * El cambio de escena es un simple puntero: `escenaActiva` decide a quién se le
+ * pasa el `dt` y qué cámara se dibuja. No hace falta más maquinaria para dos
+ * escenas que nunca coexisten.
  */
 
 const lienzo = document.getElementById('lienzo') as HTMLCanvasElement | null;
@@ -76,6 +81,45 @@ async function arrancar(): Promise<void> {
     conSombras: renderizador.calidad.resolucionSombras > 0,
   });
 
+  // --- Cambio entre el mapa y el campo de batalla ---
+  let batalla: EscenaBatalla | null = null;
+  /** Territorio que se disputa en la batalla en curso: hay que devolverlo con el parte. */
+  let territorioEnDisputa = '';
+
+  campana.alPedirBatalla((choque) => {
+    territorioEnDisputa = choque.territorio;
+    batalla = crearEscenaBatalla({
+      lienzo,
+      capaInterfaz,
+      relacionAspecto: renderizador.relacionAspecto,
+      atacante: choque.atacante,
+      composicionAtacante: choque.composicionAtacante,
+      composicionDefensor: choque.composicionDefensor,
+      bandoJugador: campana.campana.bandoJugador,
+      enFuerte: choque.tipo === 'fuerte',
+      // La semilla se deriva del territorio y del turno para que repetir la
+      // misma partida reproduzca también la misma batalla.
+      semilla: (choque.territorio.length * 7919 + campana.campana.turno * 104729) >>> 0,
+      conSombras: renderizador.calidad.resolucionSombras > 0,
+    });
+    batalla.redimensionar(renderizador.ancho, renderizador.alto);
+  });
+
+  /** Cierra la batalla en curso y devuelve su veredicto a la campaña. */
+  function terminarBatalla(activa: EscenaBatalla): void {
+    const desenlace = activa.desenlace();
+    const choque = activa.batalla;
+    activa.liberar();
+    batalla = null;
+    campana.resolverBatallaJugada({
+      territorio: territorioEnDisputa,
+      atacante: choque.atacante,
+      vencedor: desenlace.vencedor,
+      supervivientesAtacante: desenlace.supervivientesAtacante,
+      supervivientesDefensor: desenlace.supervivientesDefensor,
+    });
+  }
+
   progreso(0.8, 'Pasando revista a las tropas…');
   await respirar();
 
@@ -86,11 +130,22 @@ async function arrancar(): Promise<void> {
   const bucle = new BucleJuego({
     hercios: 30,
     alSimular: (dt) => {
+      const activa = batalla;
+      if (activa) {
+        // La batalla corre a su propio ritmo fijo, no al del bucle del mapa.
+        activa.actualizar(PASO_BATALLA);
+        if (activa.terminada) terminarBatalla(activa);
+        return;
+      }
       campana.actualizar(dt);
     },
     alRenderizar: (dtReal) => {
       renderizador.reiniciarEstadisticas();
-      renderizador.nucleo.render(campana.escena, campana.camara);
+      const activa = batalla;
+      renderizador.nucleo.render(
+        activa ? activa.escena : campana.escena,
+        activa ? activa.camara : campana.camara,
+      );
       renderizador.ajustarResolucion(bucle.msRender + bucle.msSimulacion, dtReal);
     },
   });
@@ -98,6 +153,7 @@ async function arrancar(): Promise<void> {
   window.addEventListener('resize', () => {
     renderizador.redimensionar();
     campana.redimensionar(renderizador.ancho, renderizador.alto);
+    batalla?.redimensionar(renderizador.ancho, renderizador.alto);
   });
 
   document.addEventListener('visibilitychange', () => {
@@ -121,6 +177,9 @@ async function arrancar(): Promise<void> {
       motorAudio,
       campanaEscena: campana,
       campana: campana.campana,
+      get batalla() {
+        return batalla;
+      },
       escena: campana.escena,
       camara: campana.camara,
     },

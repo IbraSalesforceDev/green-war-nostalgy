@@ -1060,3 +1060,59 @@
   0%, 100% { opacity: 0.75; }
   50% { opacity: 1; }
 }
+
+/* ============================ Campo de batalla ============================ */
+
+.gwn-batalla-marcador {
+  top: max(0.5rem, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: clamp(0.6rem, 2.5vw, 1.4rem);
+  padding: 0.35rem clamp(0.8rem, 3vw, 1.4rem);
+  border-radius: 0.6rem;
+  font-weight: 700;
+  font-size: clamp(1rem, 3.4vw, 1.4rem);
+}
+
+.gwn-batalla-lado {
+  min-width: 1.8em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.gwn-batalla-lado--propio {
+  color: #23407e;
+}
+
+.gwn-batalla-lado--ajeno {
+  color: #6a5c3a;
+}
+
+.gwn-batalla-separador {
+  font-size: 0.6em;
+  letter-spacing: 0.16em;
+  opacity: 0.7;
+}
+
+.gwn-batalla-pista {
+  position: absolute;
+  bottom: max(0.8rem, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.3rem 0.8rem;
+  border-radius: 0.3rem;
+  background: var(--hud-tinta-panel);
+  border: 1px solid var(--hud-piedra-borde);
+  color: var(--hud-pergamino);
+  font-size: clamp(0.68rem, 2.2vw, 0.8rem);
+  text-align: center;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+}
+
+.gwn-batalla-pista--ida {
+  opacity: 0;
+}

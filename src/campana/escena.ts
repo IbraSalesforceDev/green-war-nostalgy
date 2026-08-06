@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Campana } from './campana';
+import { Campana, type Choque } from './campana';
 import { IACampana } from './ia';
 import { crearMapaCampana } from './render/mapa';
 import { crearFichasEjercitos } from './render/fichas';
@@ -11,6 +11,7 @@ import {
   FaseTurno,
   type IdTerritorio,
   NOMBRE_BANDO,
+  type ResultadoBatalla,
   bandoRival,
 } from './tipos';
 
@@ -86,6 +87,14 @@ const INCLINACION = 0.95;
 
 export interface EscenaCampana {
   actualizar(dt: number): void;
+  /**
+   * Avisa de que hay un choque que dirimir. Quien orqueste el juego debe montar
+   * la escena de acción y devolver el veredicto con `resolverBatallaJugada`; la
+   * campaña se queda congelada hasta entonces.
+   */
+  alPedirBatalla(cb: (choque: Choque) => void): void;
+  /** Aplica el resultado de una batalla ya jugada y reanuda el turno. */
+  resolverBatallaJugada(resultado: ResultadoBatalla): void;
   redimensionar(ancho: number, alto: number): void;
   readonly escena: THREE.Scene;
   readonly camara: THREE.PerspectiveCamera;
@@ -162,6 +171,11 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
   let esperandoIA = false;
   let cronometroIA = 0;
   let finAnunciado = false;
+  /** Hay una batalla en curso fuera de esta escena: todo queda en pausa. */
+  let batallaEnCurso = false;
+  /** Qué había que seguir haciendo cuando la batalla devuelva su veredicto. */
+  let reanudarCon: 'jugador' | 'ia' | null = null;
+  let cbBatalla: (choque: Choque) => void = () => {};
 
   function refrescar(): void {
     mapa.sincronizar((id) => campana.duenoDe(id));
@@ -182,23 +196,23 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     refrescar();
   }
 
-  /** Dirime todos los choques pendientes y los cuenta en el diario. */
-  function resolverBatallas(): void {
-    let guarda = 0;
-    while (campana.hayChoquesPendientes && guarda++ < 20) {
-      const choque = campana.siguienteChoque()!;
-      const nombre = territorio(choque.territorio).nombre;
-      const resultado = campana.resolverChoqueAutomaticamente(choque);
-      campana.aplicarResultado(resultado);
-
-      const gana = resultado.vencedor;
-      const esMia = gana === bandoJugador;
-      const verbo = choque.tipo === 'fuerte' ? 'El asalto a' : 'La batalla de';
-      ui.anotar(
-        `${verbo} ${nombre}: vence ${NOMBRE_BANDO[gana]}`,
-        esMia ? 'bueno' : 'malo',
-      );
-    }
+  /**
+   * Cede el siguiente choque a la escena de acción. Devuelve si hay batalla en
+   * marcha, en cuyo caso quien llame debe detenerse y esperar el veredicto.
+   */
+  function pedirSiguienteBatalla(): boolean {
+    if (batallaEnCurso) return true;
+    const choque = campana.siguienteChoque();
+    if (!choque) return false;
+    batallaEnCurso = true;
+    ui.fijarVisible(false);
+    const nombre = territorio(choque.territorio).nombre;
+    ui.anotar(
+      choque.tipo === 'fuerte' ? `¡Asalto a ${nombre}!` : `¡Batalla en ${nombre}!`,
+      'info',
+    );
+    cbBatalla(choque);
+    return true;
   }
 
   function comprobarFinal(): boolean {
@@ -212,7 +226,12 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     if (campana.bandoActivo !== bandoJugador) return;
     if (campana.fase === FaseTurno.FIN) return;
 
-    resolverBatallas();
+    // Si el turno deja batallas pendientes, se ceden a la escena de acción y el
+    // resto del cierre de turno espera a que vuelva el veredicto.
+    if (pedirSiguienteBatalla()) {
+      reanudarCon = 'jugador';
+      return;
+    }
     if (comprobarFinal()) return;
 
     seleccionar(null);
@@ -236,7 +255,8 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     const movimientos = ia.jugarManiobra(campana);
 
     if (campana.hayChoquesPendientes) {
-      resolverBatallas();
+      reanudarCon = 'ia';
+      pedirSiguienteBatalla();
       return true;
     }
     if (movimientos === 0) return false;
@@ -361,7 +381,7 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
 
     // Un arrastre mueve la cámara; solo un toque limpio cuenta como orden.
     if (huboArrastre) return;
-    if (campana.fase === FaseTurno.FIN || esperandoIA) return;
+    if (campana.fase === FaseTurno.FIN || esperandoIA || batallaEnCurso) return;
 
     actualizarPuntero(evento);
     const debajo = loQueHayDebajo();
@@ -372,8 +392,10 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
       if (!choque) {
         ui.anotar(fraseConquista(debajo.territorio, bandoJugador), 'bueno');
       } else {
-        resolverBatallas();
-        comprobarFinal();
+        // Atacar abre la escena de batalla en el acto: es el momento que da
+        // sentido a todo lo que se ha maniobrado en el mapa.
+        reanudarCon = null;
+        pedirSiguienteBatalla();
       }
       seleccionar(null);
       return;
@@ -415,9 +437,44 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     camara,
     campana,
 
+    alPedirBatalla(cb): void {
+      cbBatalla = cb;
+    },
+
+    resolverBatallaJugada(resultado): void {
+      batallaEnCurso = false;
+      ui.fijarVisible(true);
+      const gana = resultado.vencedor;
+      const nombre = territorio(resultado.territorio).nombre;
+      campana.aplicarResultado(resultado);
+      ui.anotar(
+        `${nombre}: vence ${NOMBRE_BANDO[gana]}`,
+        gana === bandoJugador ? 'bueno' : 'malo',
+      );
+      refrescar();
+      if (comprobarFinal()) return;
+
+      // Quedan más choques del mismo turno: se dirimen uno a uno.
+      if (pedirSiguienteBatalla()) return;
+
+      const continuar = reanudarCon;
+      reanudarCon = null;
+      if (continuar === 'jugador') {
+        seleccionar(null);
+        campana.terminarTurno();
+        if (comprobarFinal()) return;
+        esperandoIA = true;
+        cronometroIA = RITMO_IA;
+        ui.fijarEsperando(true);
+      }
+      refrescar();
+    },
+
     actualizar(dt: number): void {
       fichas.actualizar(dt);
 
+      // Con una batalla en marcha, el mapa se congela: manda la otra escena.
+      if (batallaEnCurso) return;
       if (!esperandoIA) return;
       cronometroIA -= dt;
       if (cronometroIA > 0) return;

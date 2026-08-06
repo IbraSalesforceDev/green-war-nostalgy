@@ -44,6 +44,12 @@ export interface UiCampana {
   mostrarFinal(ganador: BandoCampana, esElJugador: boolean, turnos: number): void;
   /** Bloquea los controles mientras juega la máquina. */
   fijarEsperando(esperando: boolean): void;
+  /**
+   * Enseña u oculta la interfaz del mapa entera. Durante una batalla no puede
+   * quedarse encima: el botón de pasar turno sobre un campo de batalla invita a
+   * pulsarlo, y ni siquiera es de esa escena.
+   */
+  fijarVisible(visible: boolean): void;
   liberar(): void;
 }
 
@@ -132,6 +138,10 @@ export function crearUiCampana(contenedor: HTMLElement, bandoJugador: BandoCampa
 
     alTerminarTurno(cb): void {
       cbTerminar = cb;
+    },
+
+    fijarVisible(visible): void {
+      raiz.classList.toggle('gwn-oculto', !visible);
     },
 
     fijarEsperando(esperando): void {
