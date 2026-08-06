@@ -7,6 +7,7 @@ import {
   type IdTerritorio,
   totalTropas,
 } from '../tipos';
+import { crearFigurasDeBando } from './figuras';
 
 /**
  * Las fichas de ejército: quién hay en cada territorio y de qué está hecho.
@@ -31,17 +32,30 @@ const MAX_FICHAS = 24;
 /** Altura a la que flota la peana sobre la tierra. */
 const ALTURA_PEANA = 0.05;
 
+/**
+ * La peana va mucho más oscura que el territorio que pisa, no del color del bando.
+ *
+ * Parece contraintuitivo, pero teñirla del color del bando la hacía desaparecer:
+ * una peana azul sobre una provincia azul no se ve, y era justo la pieza que debe
+ * decir «aquí hay un ejército». El bando ya lo cantan los uniformes de las
+ * figurillas; la peana solo tiene que separarlas del suelo.
+ */
 const COLOR_PEANA: Readonly<Record<BandoCampana, number>> = {
-  [BandoCampana.NINGUNO]: 0x8a8a82,
-  [BandoCampana.UNION]: 0x2f4f9e,
-  [BandoCampana.CONFEDERACION]: 0x6e6a5c,
+  [BandoCampana.NINGUNO]: 0x2a2a26,
+  [BandoCampana.UNION]: 0x17203a,
+  [BandoCampana.CONFEDERACION]: 0x322d22,
 };
 
-/** Tono del uniforme: azul de la Unión, gris pardo del Sur. */
-const COLOR_TROPA: Readonly<Record<BandoCampana, number>> = {
-  [BandoCampana.NINGUNO]: 0x9a9a92,
-  [BandoCampana.UNION]: 0x3d5fa8,
-  [BandoCampana.CONFEDERACION]: 0x8b8672,
+/**
+ * Aro vivo en el borde de la peana. La peana oscura separa la ficha del suelo,
+ * pero por sí sola no dice de quién es —y en sombra se confunde con la propia
+ * sombra—. El aro resuelve las dos cosas de un golpe, y de paso hace que el
+ * conjunto se lea como la ficha de un juego de mesa.
+ */
+const COLOR_ARO: Readonly<Record<BandoCampana, number>> = {
+  [BandoCampana.NINGUNO]: 0xa8a89c,
+  [BandoCampana.UNION]: 0x5b8ae0,
+  [BandoCampana.CONFEDERACION]: 0xc9bb92,
 };
 
 export interface FichasEjercitos {
@@ -70,9 +84,10 @@ interface Ficha {
   raiz: THREE.Group;
   peana: THREE.Mesh;
   materialPeana: THREE.MeshStandardMaterial;
+  aro: THREE.Mesh;
+  materialAro: THREE.MeshStandardMaterial;
   /** Una figurilla por arma; se enseñan solo las que el ejército tenga. */
   figuras: THREE.Mesh[];
-  materialesFigura: THREE.MeshStandardMaterial[];
   idEjercito: number;
   /** Altura del suelo bajo la ficha; el balanceo se suma a esto cada fotograma. */
   alturaBase: number;
@@ -90,16 +105,31 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
   // Geometrías compartidas por todas las fichas: se crean una vez y se reutilizan.
   // Las fichas se dimensionan para el dedo, no para el ojo: en un mapa que cabe
   // entero en la pantalla de un móvil, una ficha «a escala» sería intocable.
-  const geoPeana = new THREE.CylinderGeometry(3.3, 3.6, 0.4, 14);
-  const geoFigura: Readonly<Record<Arma, THREE.BufferGeometry>> = {
-    // El fusilero: un cuerpo esbelto y un chacó. Basta la silueta.
-    [Arma.INFANTERIA]: new THREE.CapsuleGeometry(0.62, 1.6, 3, 6),
-    // El jinete: más ancho y más bajo, la grupa del caballo.
-    [Arma.CABALLERIA]: new THREE.CapsuleGeometry(0.78, 2.0, 3, 6),
-    // El cañón: una cuña, que a esta escala se lee mejor que un tubo.
-    [Arma.ARTILLERIA]: new THREE.CylinderGeometry(0.28, 0.95, 2.2, 6),
-  };
-  desechables.push(geoPeana, ...Object.values(geoFigura));
+  const geoPeana = new THREE.CylinderGeometry(3.45, 3.75, 0.42, 16);
+  // Aro plano justo sobre el canto de la peana. Va sin sombras: es una marca de
+  // identificación, no un objeto, y proyectarla solo ensuciaría el suelo.
+  const geoAro = new THREE.RingGeometry(3.0, 3.55, 20);
+  geoAro.rotateX(-Math.PI / 2);
+  desechables.push(geoPeana, geoAro);
+
+  // Un juego de figuras por bando: el color del uniforme va horneado en los
+  // vértices, así que no puede compartirse entre azules y grises.
+  const geoPorBando = new Map<BandoCampana, Readonly<Record<Arma, THREE.BufferGeometry>>>();
+  for (const bando of [BandoCampana.UNION, BandoCampana.CONFEDERACION, BandoCampana.NINGUNO]) {
+    const juego = crearFigurasDeBando(bando);
+    geoPorBando.set(bando, juego);
+    for (const arma of ARMAS) desechables.push(juego[arma]);
+  }
+
+  // Un solo material para todas las figurillas de todas las fichas: el color ya
+  // viaja en los vértices, así que no hace falta uno por arma ni por bando.
+  const materialFiguras = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.82,
+    metalness: 0.08,
+    flatShading: true,
+  });
+  desechables.push(materialFiguras);
 
   const fichas: Ficha[] = [];
   const porObjeto = new Map<THREE.Object3D, number>();
@@ -121,24 +151,28 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
     grupo.add(peana);
     desechables.push(materialPeana);
 
+    const materialAro = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.6,
+      metalness: 0.15,
+      side: THREE.DoubleSide,
+    });
+    const aro = new THREE.Mesh(geoAro, materialAro);
+    aro.position.y = 0.24;
+    grupo.add(aro);
+    desechables.push(materialAro);
+
     const figuras: THREE.Mesh[] = [];
-    const materialesFigura: THREE.MeshStandardMaterial[] = [];
     for (const arma of ARMAS) {
-      const material = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.85,
-        metalness: arma === Arma.ARTILLERIA ? 0.45 : 0.05,
-        flatShading: true,
-      });
-      const figura = new THREE.Mesh(geoFigura[arma], material);
+      // La geometría definitiva se asigna al sincronizar, cuando se sabe de qué
+      // bando es el ejército; aquí solo hace falta una para poder crear la malla.
+      const figura = new THREE.Mesh(geoPorBando.get(BandoCampana.UNION)![arma], materialFiguras);
       figura.castShadow = true;
       // En fila, de izquierda a derecha, en el mismo orden que las armas.
-      figura.position.set((arma - 1) * 1.85, 1.4, 0);
+      figura.position.set((arma - 1) * 1.9, 0.2, 0);
       figura.visible = false;
       grupo.add(figura);
       figuras.push(figura);
-      materialesFigura.push(material);
-      desechables.push(material);
     }
 
     raiz.add(grupo);
@@ -146,8 +180,9 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
       raiz: grupo,
       peana,
       materialPeana,
+      aro,
+      materialAro,
       figuras,
-      materialesFigura,
       idEjercito: 0,
       alturaBase: 0,
       desfase: i * 0.7,
@@ -182,23 +217,32 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
         ficha.raiz.position.set(posicion.x, ficha.alturaBase, posicion.z);
 
         ficha.materialPeana.color.setHex(COLOR_PEANA[ejercito.bando]);
-        const colorTropa = COLOR_TROPA[ejercito.bando];
+        ficha.materialAro.color.setHex(COLOR_ARO[ejercito.bando]);
+        const juego = geoPorBando.get(ejercito.bando) ?? geoPorBando.get(BandoCampana.NINGUNO)!;
 
         // El tamaño de la peana crece con las tropas, pero muy poco a poco: un
         // ejército de treinta no puede tapar medio mapa.
-        const escala = 0.75 + Math.min(1, tropas / 24) * 0.5;
+        const escala = 0.8 + Math.min(1, tropas / 24) * 0.42;
         ficha.peana.scale.setScalar(escala);
+        ficha.aro.scale.set(escala, 1, escala);
+        ficha.aro.position.y = 0.24 * escala;
 
-        for (const arma of ARMAS) {
-          const cuantos = ejercito.composicion[arma];
+        // Las armas presentes se reparten centradas: con una sola no debe quedar
+        // descolgada a un lado de la peana.
+        const presentes = ARMAS.filter((arma) => ejercito.composicion[arma] > 0);
+        presentes.forEach((arma, indice) => {
           const figura = ficha.figuras[arma]!;
-          figura.visible = cuantos > 0;
-          if (cuantos === 0) continue;
-          ficha.materialesFigura[arma]!.color.setHex(colorTropa);
-          // Cada figurilla también crece un poco con los suyos.
-          const alto = 0.85 + Math.min(1, cuantos / 12) * 0.5;
-          figura.scale.set(1, alto, 1);
-          figura.position.y = 0.75 + alto * 0.8;
+          figura.visible = true;
+          figura.geometry = juego[arma];
+          const desplazamiento = (indice - (presentes.length - 1) / 2) * 1.95;
+          // Cada figurilla crece un poco con los suyos, sin llegar a deformarse.
+          const cuantos = ejercito.composicion[arma];
+          const bulto = 1.05 + Math.min(1, cuantos / 12) * 0.32;
+          figura.scale.setScalar(bulto);
+          figura.position.set(desplazamiento, 0.2, 0);
+        });
+        for (const arma of ARMAS) {
+          if (ejercito.composicion[arma] === 0) ficha.figuras[arma]!.visible = false;
         }
       }
 

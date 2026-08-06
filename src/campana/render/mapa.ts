@@ -29,6 +29,20 @@ const ESCALA = 1;
 /** Grosor de la tierra. Suficiente para que se vea el canto contra el mar. */
 const ALTURA_TIERRA = 1.6;
 
+/** Redondeo del canto. Suaviza la arista contra el mar. */
+const BISEL_TIERRA = 0.25;
+
+/**
+ * Altura real de la superficie pisable.
+ *
+ * `ExtrudeGeometry` no termina en `depth`: el bisel añade su grosor **por encima**
+ * de la extrusión, de modo que la cara de arriba queda en `depth + bevelThickness`.
+ * Dar por bueno `ALTURA_TIERRA` a secas enterraba las peanas de los ejércitos un
+ * cuarto de unidad bajo el terreno, y solo se notaba en los territorios que la
+ * cámara veía de frente.
+ */
+export const ALTURA_SUPERFICIE = ALTURA_TIERRA + BISEL_TIERRA;
+
 /** Colores base de cada bando, en tono cómic: planos y saturados sin chillar. */
 const COLOR_BANDO: Readonly<Record<BandoCampana, number>> = {
   [BandoCampana.NINGUNO]: 0x9a9a92,
@@ -91,7 +105,7 @@ export function crearMapaCampana(escena: THREE.Scene): MapaCampana {
     const geometria = new THREE.ExtrudeGeometry(forma, {
       depth: ALTURA_TIERRA,
       bevelEnabled: true,
-      bevelThickness: 0.25,
+      bevelThickness: BISEL_TIERRA,
       bevelSize: 0.35,
       bevelSegments: 1,
     });
@@ -222,7 +236,7 @@ export function crearMapaCampana(escena: THREE.Scene): MapaCampana {
     posicionDe(id): THREE.Vector3 {
       const pieza = piezas.get(id);
       if (!pieza) return new THREE.Vector3();
-      return aEscena(pieza.territorio.x, pieza.territorio.y, ALTURA_TIERRA);
+      return aEscena(pieza.territorio.x, pieza.territorio.y, ALTURA_SUPERFICIE);
     },
 
     liberar(): void {
@@ -245,7 +259,7 @@ function anadirEmblemas(
   territorio: Territorio,
   desechables: Array<{ dispose(): void }>,
 ): void {
-  const base = aEscena(territorio.x, territorio.y, ALTURA_TIERRA);
+  const base = aEscena(territorio.x, territorio.y, ALTURA_SUPERFICIE);
 
   if (territorio.capitalDe !== BandoCampana.NINGUNO) {
     // Cúpula sobre un tambor: la silueta de un capitolio, reducida a lo mínimo.
