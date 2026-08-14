@@ -1099,7 +1099,7 @@
 
 .gwn-batalla-pista {
   position: absolute;
-  bottom: max(0.8rem, env(safe-area-inset-bottom));
+  bottom: calc(max(0.8rem, env(safe-area-inset-bottom)) + 5.6rem);
   left: 50%;
   transform: translateX(-50%);
   padding: 0.3rem 0.8rem;
@@ -1115,4 +1115,113 @@
 
 .gwn-batalla-pista--ida {
   opacity: 0;
+}
+
+/* --- Panel de mando de la batalla --- */
+
+.gwn-batalla-mando {
+  position: absolute;
+  left: 50%;
+  bottom: max(0.5rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  pointer-events: auto;
+}
+
+.gwn-batalla-armas,
+.gwn-batalla-ordenes {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* Botón de arma: cuadrado, con el icono y cuántas quedan. */
+.gwn-batalla-arma {
+  position: relative;
+  min-width: var(--hud-toque);
+  min-height: var(--hud-toque);
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.35rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: radial-gradient(circle at 32% 28%, var(--hud-piedra-clara), var(--hud-piedra-media) 60%, var(--hud-piedra-oscura));
+  color: var(--hud-pergamino-clara);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.gwn-batalla-arma--elegida {
+  border-color: var(--hud-oro);
+  box-shadow: 0 0 0.5rem rgba(232, 182, 76, 0.5);
+}
+
+.gwn-batalla-arma:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.8) brightness(0.55);
+}
+
+/* Sin tamaño explícito los SVG del botón colapsan a nada y solo se ve la cifra. */
+.gwn-batalla-arma .icono-svg,
+.gwn-batalla-orden .icono-svg,
+.gwn-batalla-carga .icono-svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+}
+
+.gwn-batalla-arma-cuenta {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Órdenes: pastillas anchas, fáciles de acertar con el pulgar. */
+.gwn-batalla-orden,
+.gwn-batalla-carga {
+  min-height: var(--hud-toque);
+  padding: 0 0.7rem;
+  border-radius: 0.35rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: linear-gradient(180deg, var(--hud-piedra-clara), var(--hud-piedra-oscura));
+  color: var(--hud-pergamino-clara);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: clamp(0.7rem, 2.3vw, 0.82rem);
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+
+.gwn-batalla-orden--activa {
+  background: linear-gradient(180deg, #f0cf7a 0%, #d29c30 45%, #8f6416 100%);
+  color: #2b1d0e;
+  border-color: var(--hud-oro);
+}
+
+.gwn-batalla-carga {
+  background: linear-gradient(180deg, #d8674a 0%, #a83a22 50%, #6d2212 100%);
+}
+
+.gwn-batalla-carga:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.75) brightness(0.6);
+}
+
+/* Mientras dura la embestida, el botón late para que se vea que está en marcha. */
+.gwn-batalla-carga--en-marcha {
+  animation: gwn-latido 0.5s ease-in-out infinite;
+}
+
+.gwn-batalla-orden:active:not(:disabled),
+.gwn-batalla-carga:active:not(:disabled),
+.gwn-batalla-arma:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
 }

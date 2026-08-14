@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { crearFigurasDeBando } from '../campana/render/figuras';
-import { ARMAS, Arma, BandoCampana, type Composicion } from '../campana/tipos';
+import { ARMAS, Arma, BandoCampana, type Composicion, NOMBRE_ARMA } from '../campana/tipos';
+import { elementoIcono } from '../ui/iconos';
 import {
   ANCHO_CAMPO,
   Batalla,
   type DesenlaceBatalla,
   EstadoUnidad,
   FONDO_CAMPO,
+  Postura,
   type UnidadBatalla,
 } from './batalla';
 
@@ -19,10 +21,15 @@ import {
  * instante lo que ve cuando la ficha se convierte en un ejército de verdad.
  *
  * ── El mando ─────────────────────────────────────────────────────────────────
- * Arrastrar traza un rectángulo y elige tropas propias; un toque suelto sobre el
- * campo las manda allí. Sin selección previa, el toque ordena a todo el ejército.
- * Es lo justo para dirigir una batalla con un dedo y sin menús: el grueso del
- * combate lo resuelven las unidades solas, y quien juega decide dónde carga.
+ * Tres botones, uno por arma, y tres órdenes: avanzar, aguantar o retirarse. Más
+ * la carga de caballería, que va aparte porque es un momento y no un estado.
+ *
+ * La versión anterior dejaba señalar puntos del campo, y se sentía automática con
+ * razón: las tropas ya iban solas hacia el enemigo, así que la orden casi nunca
+ * cambiaba nada. Se mandaba sin que mandar sirviese. Decidir el ritmo de cada
+ * arma —adelantar la infantería mientras los cañones baten desde atrás, aguantar
+ * hasta que el enemigo se meta a tiro, lanzar la carga en el momento justo— sí
+ * decide la batalla, y además se hace con el pulgar sin apuntar a nada.
  */
 
 /** Alto del suelo. Las unidades andan sobre él. */
@@ -40,6 +47,12 @@ const ESCALA_FIGURA = 1.7;
 
 const COLOR_SELECCION = 0xffe9a8;
 
+const ICONO_ARMA: Readonly<Record<Arma, Parameters<typeof elementoIcono>[0]>> = {
+  [Arma.INFANTERIA]: 'casco',
+  [Arma.CABALLERIA]: 'jinete',
+  [Arma.ARTILLERIA]: 'catapulta',
+};
+
 export interface EscenaBatalla {
   readonly escena: THREE.Scene;
   readonly camara: THREE.PerspectiveCamera;
@@ -53,8 +66,7 @@ export interface EscenaBatalla {
 }
 
 export interface OpcionesEscenaBatalla {
-  lienzo: HTMLCanvasElement;
-  /** Dónde colgar el marcador de la batalla. */
+  /** Dónde colgar el marcador y el panel de mando. */
   capaInterfaz: HTMLElement;
   relacionAspecto: number;
   atacante: BandoCampana;
@@ -73,8 +85,6 @@ interface VistaUnidad {
 }
 
 export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatalla {
-  const { lienzo } = opciones;
-
   const batalla = new Batalla({
     atacante: opciones.atacante,
     composicionAtacante: opciones.composicionAtacante,
@@ -107,8 +117,11 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   const desechables: Array<{ dispose(): void }> = [];
 
   // --- El campo ---
+  // Muy holgado a propósito: la cámara se aleja para encuadrar a los dos
+  // ejércitos, y con un suelo ajustado al campo se veía el canto del plano
+  // recortado contra el cielo.
   const suelo = new THREE.Mesh(
-    new THREE.PlaneGeometry(ANCHO_CAMPO + 30, FONDO_CAMPO + 30, 1, 1),
+    new THREE.PlaneGeometry(ANCHO_CAMPO * 4, FONDO_CAMPO * 6, 1, 1),
     new THREE.MeshStandardMaterial({ color: 0x6f8f4a, roughness: 1, metalness: 0 }),
   );
   suelo.rotation.x = -Math.PI / 2;
@@ -119,9 +132,9 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   // Franjas de labranza: dan escala y hacen visible el avance de las tropas, que
   // sobre un verde liso parecería que patinan sin moverse.
   const franjas = new THREE.Group();
-  for (let i = -6; i <= 6; i++) {
+  for (let i = -10; i <= 10; i++) {
     const franja = new THREE.Mesh(
-      new THREE.PlaneGeometry(ANCHO_CAMPO + 20, 2.2),
+      new THREE.PlaneGeometry(ANCHO_CAMPO * 3, 2.2),
       new THREE.MeshStandardMaterial({ color: 0x64823f, roughness: 1 }),
     );
     franja.rotation.x = -Math.PI / 2;
@@ -207,10 +220,24 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   let cursorFogonazo = 0;
 
   // --- Cámara ---
-  const camara = new THREE.PerspectiveCamera(46, opciones.relacionAspecto, 0.5, 400);
-  let distancia = 64;
+  const camara = new THREE.PerspectiveCamera(42, opciones.relacionAspecto, 0.5, 400);
+  let distancia = 52;
   let objetivoX = 0;
-  const INCLINACION = 0.82;
+  /**
+   * Casi de perfil.
+   *
+   * Es el cambio que arregla la lectura de la batalla: en cenital las tropas se
+   * tapaban unas a otras en profundidad y no se distinguía quién pegaba a quién.
+   * De lado todo cae en un plano —se ve la línea, el hueco, la carga que entra— y
+   * además las figuras se modelaron de perfil, que es su mejor ángulo. Los quince
+   * grados que quedan son los que separan un dibujo plano de una escena con
+   * volumen: lo justo para que se note el suelo bajo los pies.
+   *
+   * Con 0,26 la cámara miraba tan a ras que media pantalla era cielo vacío; 0,40
+   * sigue leyéndose de perfil y llena el encuadre de campo, que es donde pasa
+   * todo.
+   */
+  const INCLINACION = 0.4;
 
   function recolocarCamara(): void {
     camara.position.set(
@@ -218,86 +245,17 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
       Math.sin(INCLINACION) * distancia,
       Math.cos(INCLINACION) * distancia,
     );
-    camara.lookAt(objetivoX, 0, 0);
+    camara.lookAt(objetivoX, 2.5, 0);
   }
   recolocarCamara();
 
-  // --- Entrada: selección por arrastre y órdenes por toque ---
-  const seleccionados = new Set<number>();
-  let arrastrando = false;
-  let huboArrastre = false;
-  let inicioX = 0;
-  let inicioY = 0;
-  const rayo = new THREE.Raycaster();
-  const puntero = new THREE.Vector2();
-  const planoSuelo = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const puntoMundo = new THREE.Vector3();
-
-  /** Punto del campo bajo el puntero, o null si el rayo no toca el suelo. */
-  function suelBajoPuntero(evento: PointerEvent): THREE.Vector3 | null {
-    const rect = lienzo.getBoundingClientRect();
-    puntero.x = ((evento.clientX - rect.left) / rect.width) * 2 - 1;
-    puntero.y = -((evento.clientY - rect.top) / rect.height) * 2 + 1;
-    rayo.setFromCamera(puntero, camara);
-    return rayo.ray.intersectPlane(planoSuelo, puntoMundo) ? puntoMundo.clone() : null;
-  }
-
-  function alPointerDown(evento: PointerEvent): void {
-    if (evento.target !== lienzo) return;
-    lienzo.setPointerCapture(evento.pointerId);
-    arrastrando = true;
-    huboArrastre = false;
-    inicioX = evento.clientX;
-    inicioY = evento.clientY;
-  }
-
-  function alPointerMove(evento: PointerEvent): void {
-    if (!arrastrando) return;
-    if (Math.abs(evento.clientX - inicioX) + Math.abs(evento.clientY - inicioY) > 12) {
-      huboArrastre = true;
-    }
-  }
-
-  function alPointerUp(evento: PointerEvent): void {
-    if (!arrastrando) return;
-    arrastrando = false;
-    if (batalla.terminada) return;
-
-    const punto = suelBajoPuntero(evento);
-    if (!punto) return;
-
-    if (huboArrastre) {
-      // Arrastre: elige las tropas propias del rectángulo barrido.
-      const inicio = suelBajoPuntero({
-        clientX: inicioX,
-        clientY: inicioY,
-      } as PointerEvent);
-      if (!inicio) return;
-      seleccionados.clear();
-      const minX = Math.min(inicio.x, punto.x);
-      const maxX = Math.max(inicio.x, punto.x);
-      const minZ = Math.min(inicio.z, punto.z);
-      const maxZ = Math.max(inicio.z, punto.z);
-      for (const unidad of batalla.vivasDe(opciones.bandoJugador)) {
-        if (unidad.x >= minX && unidad.x <= maxX && unidad.z >= minZ && unidad.z <= maxZ) {
-          seleccionados.add(unidad.id);
-        }
-      }
-      return;
-    }
-
-    // Toque suelto: manda a lo elegido, o a todo el ejército si no hay nada elegido.
-    const destinatarios =
-      seleccionados.size > 0
-        ? [...seleccionados]
-        : batalla.vivasDe(opciones.bandoJugador).map((u) => u.id);
-    batalla.ordenarIr(destinatarios, punto.x, punto.z);
-  }
-
-  lienzo.addEventListener('pointerdown', alPointerDown);
-  lienzo.addEventListener('pointermove', alPointerMove);
-  lienzo.addEventListener('pointerup', alPointerUp);
-  lienzo.addEventListener('pointercancel', alPointerUp);
+  // --- Mando: un arma cada vez, con botones ---
+  //
+  // Señalar puntos del campo no mandaba nada: las tropas ya iban solas hacia el
+  // enemigo, así que la orden apenas cambiaba el resultado. Decidir si un arma
+  // avanza, aguanta o se retira sí decide la batalla, y además se hace con el
+  // pulgar sin apuntar a nada.
+  let armaElegida: Arma = Arma.INFANTERIA;
 
   // --- Marcador ---
   const hud = document.createElement('div');
@@ -319,9 +277,94 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   marcador.appendChild(separadorMarcador);
   const marcaAjena = lado('gwn-batalla-lado--ajeno');
 
+  // --- Panel de mando ---
+  const mando = document.createElement('div');
+  mando.className = 'gwn-batalla-mando';
+
+  const fichasArma = new Map<Arma, HTMLButtonElement>();
+  const filaArmas = document.createElement('div');
+  filaArmas.className = 'gwn-batalla-armas';
+  for (const arma of ARMAS) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'gwn-batalla-arma';
+    boton.appendChild(elementoIcono(ICONO_ARMA[arma]));
+    const cuenta = document.createElement('span');
+    cuenta.className = 'gwn-batalla-arma-cuenta';
+    boton.appendChild(cuenta);
+    boton.setAttribute('aria-label', NOMBRE_ARMA[arma]);
+    boton.addEventListener('click', () => {
+      armaElegida = arma;
+      refrescarMando();
+    });
+    filaArmas.appendChild(boton);
+    fichasArma.set(arma, boton);
+  }
+  mando.appendChild(filaArmas);
+
+  const filaOrdenes = document.createElement('div');
+  filaOrdenes.className = 'gwn-batalla-ordenes';
+  const botonesPostura = new Map<Postura, HTMLButtonElement>();
+  const ORDENES: Array<[Postura, string, Parameters<typeof elementoIcono>[0]]> = [
+    [Postura.RETIRAR, 'Atrás', 'volver'],
+    [Postura.MANTENER, 'Alto', 'mantener'],
+    [Postura.AVANZAR, 'Avanzar', 'espadas'],
+  ];
+  for (const [postura, texto, icono] of ORDENES) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'gwn-batalla-orden';
+    boton.appendChild(elementoIcono(icono));
+    const etiqueta = document.createElement('span');
+    etiqueta.textContent = texto;
+    boton.appendChild(etiqueta);
+    boton.addEventListener('click', () => {
+      batalla.fijarPostura(armaElegida, postura);
+      refrescarMando();
+    });
+    filaOrdenes.appendChild(boton);
+    botonesPostura.set(postura, boton);
+  }
+
+  // La carga es un momento, no un estado: va aparte y con su propio aspecto.
+  const botonCarga = document.createElement('button');
+  botonCarga.type = 'button';
+  botonCarga.className = 'gwn-batalla-carga';
+  botonCarga.appendChild(elementoIcono('jinete'));
+  const textoCarga = document.createElement('span');
+  textoCarga.textContent = '¡Carga!';
+  botonCarga.appendChild(textoCarga);
+  botonCarga.addEventListener('click', () => {
+    batalla.lanzarCarga();
+    refrescarMando();
+  });
+  filaOrdenes.appendChild(botonCarga);
+  mando.appendChild(filaOrdenes);
+  hud.appendChild(mando);
+
+  function refrescarMando(): void {
+    for (const arma of ARMAS) {
+      const boton = fichasArma.get(arma)!;
+      const cuantas = batalla.vivasDe(opciones.bandoJugador).filter((u) => u.arma === arma).length;
+      boton.classList.toggle('gwn-batalla-arma--elegida', arma === armaElegida);
+      boton.disabled = cuantas === 0;
+      (boton.lastElementChild as HTMLElement).textContent = String(cuantas);
+    }
+    const actual = batalla.posturaDe(opciones.bandoJugador, armaElegida);
+    for (const [postura, boton] of botonesPostura) {
+      boton.classList.toggle('gwn-batalla-orden--activa', postura === actual);
+    }
+    const cargando = batalla.cargaDe(opciones.bandoJugador) > 0;
+    const hayJinetes = batalla
+      .vivasDe(opciones.bandoJugador)
+      .some((u) => u.arma === Arma.CABALLERIA);
+    botonCarga.disabled = cargando || !hayJinetes;
+    botonCarga.classList.toggle('gwn-batalla-carga--en-marcha', cargando);
+  }
+
   const pista = document.createElement('div');
   pista.className = 'gwn-batalla-pista';
-  pista.textContent = 'Arrastra para elegir tropas · toca el campo para mandarlas';
+  pista.textContent = 'Elige un arma y dile si avanza, aguanta o se retira';
   hud.appendChild(pista);
   opciones.capaInterfaz.appendChild(hud);
 
@@ -337,6 +380,7 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     marcaAjena.textContent = String(batalla.vivasDe(rival).length);
   }
   refrescarMarcador();
+  refrescarMando();
 
   return {
     escena,
@@ -352,6 +396,7 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     actualizar(dt: number): void {
       batalla.paso(dt);
       refrescarMarcador();
+      refrescarMando();
 
       // Un fogonazo por disparo de este tick.
       for (const disparo of batalla.disparos) {
@@ -390,9 +435,11 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
           continue;
         }
 
-        const elegida = seleccionados.has(u.id);
-        vista.anillo.visible = elegida;
-        if (elegida) vista.anillo.position.set(u.x, ALTURA_SUELO + 0.05, u.z);
+        // Se marcan las tropas del arma que se está mandando ahora mismo, para
+        // que se vea a quién van a afectar los botones antes de pulsarlos.
+        const marcada = u.bando === opciones.bandoJugador && u.arma === armaElegida;
+        vista.anillo.visible = marcada;
+        if (marcada) vista.anillo.position.set(u.x, ALTURA_SUELO + 0.05, u.z);
       }
 
       // La cámara sigue al grueso del combate para que la acción no se salga.
@@ -400,8 +447,19 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
         (u) => u.estado === EstadoUnidad.AVANZANDO || u.estado === EstadoUnidad.COMBATIENDO,
       );
       if (enPie.length > 0) {
-        const medio = enPie.reduce((s, u) => s + u.x, 0) / enPie.length;
-        objetivoX += (medio - objetivoX) * Math.min(1, dt * 1.2);
+        // La cámara encuadra a los dos ejércitos enteros, no solo el punto de
+        // contacto: si se pega al frente, la mitad de la tropa queda fuera de
+        // pantalla justo cuando hay que decidir qué hacer con ella.
+        const izquierda = Math.min(...enPie.map((u) => u.x));
+        const derecha = Math.max(...enPie.map((u) => u.x));
+        const centro = (izquierda + derecha) / 2;
+        objetivoX += (centro - objetivoX) * Math.min(1, dt * 1.5);
+
+        // Y se aleja lo justo para que quepan, entre un mínimo que evita el
+        // plano lejanísimo del principio y un máximo que no deja verlas.
+        const anchoVisible = 2 * Math.tan((camara.fov * Math.PI) / 360) * camara.aspect;
+        const deseada = limitar(((derecha - izquierda) * 1.35) / Math.max(0.5, anchoVisible), 34, 74);
+        distancia += (deseada - distancia) * Math.min(1, dt * 0.9);
         recolocarCamara();
       }
     },
@@ -413,12 +471,12 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
 
     liberar(): void {
       hud.remove();
-      lienzo.removeEventListener('pointerdown', alPointerDown);
-      lienzo.removeEventListener('pointermove', alPointerMove);
-      lienzo.removeEventListener('pointerup', alPointerUp);
-      lienzo.removeEventListener('pointercancel', alPointerUp);
       for (const d of desechables) d.dispose();
       escena.clear();
     },
   };
+}
+
+function limitar(valor: number, minimo: number, maximo: number): number {
+  return Math.min(maximo, Math.max(minimo, valor));
 }

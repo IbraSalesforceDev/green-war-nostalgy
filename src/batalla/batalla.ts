@@ -39,9 +39,15 @@ import {
 export const HERCIOS_BATALLA = 30;
 export const PASO_BATALLA = 1 / HERCIOS_BATALLA;
 
-/** Ancho y fondo del campo, en unidades de escena. */
+/**
+ * Ancho y fondo del campo.
+ *
+ * El fondo es corto a propósito: la batalla se mira de perfil y todo lo que pase
+ * en profundidad se pierde. Sirve para que las tropas no se solapen en una única
+ * raya y para que una carga por el flanco se note, nada más.
+ */
 export const ANCHO_CAMPO = 84;
-export const FONDO_CAMPO = 46;
+export const FONDO_CAMPO = 26;
 
 /**
  * Distancia mínima a la que puede quedar cualquier pareja de unidades, que es la
@@ -72,6 +78,32 @@ const SEGUNDOS_MAXIMOS = 75;
  */
 const SEGUNDOS_SIN_BAJAS_PARA_ROMPER_TABLAS = 18;
 
+/** Lo que dura una carga de caballería y cuánto acelera. */
+const SEGUNDOS_CARGA = 5;
+const FACTOR_CARGA = 1.75;
+
+/** Clave del mapa de posturas. Un bando y un arma. */
+function claveP(bando: BandoCampana, arma: Arma): string {
+  return `${bando}:${arma}`;
+}
+
+/**
+ * Lo que se le manda a un arma entera.
+ *
+ * Aquí está la diferencia entre dar órdenes y conducir una batalla. Señalar un
+ * punto del campo no mandaba nada —las tropas ya iban hacia el enemigo por su
+ * cuenta, así que la orden casi nunca cambiaba nada—; decidir si un arma avanza,
+ * aguanta o se retira sí es una decisión con consecuencias en cada instante.
+ */
+export enum Postura {
+  /** Va a por el enemigo. */
+  AVANZAR = 0,
+  /** Se queda donde está y dispara a lo que se le ponga a tiro. */
+  MANTENER = 1,
+  /** Retrocede hacia su propio borde. */
+  RETIRAR = 2,
+}
+
 export enum EstadoUnidad {
   AVANZANDO = 0,
   COMBATIENDO = 1,
@@ -97,11 +129,17 @@ export interface FichaArma {
 
 export const FICHA: Readonly<Record<Arma, FichaArma>> = {
   [Arma.INFANTERIA]: {
+    // Alcance y daño subieron al estrechar el campo para la vista de perfil. Con
+    // menos fondo, la caballería recorre mucha menos diagonal y llega casi sin
+    // comer fuego; con los números viejos, infantería y caballería hacían el mismo
+    // daño por segundo y ganaba siempre la que tenía más vida. La tabla del
+    // triángulo no se toca —tiene que seguir casando con la del mapa—: lo que se
+    // ajusta son las fichas, que son propias de esta escena.
     vida: 100,
     velocidad: 3.4,
-    alcance: 10,
+    alcance: 16,
     cadencia: 1.9,
-    danio: 24,
+    danio: 30,
     radio: 0.9,
     proyectil: true,
   },
@@ -114,7 +152,7 @@ export const FICHA: Readonly<Record<Arma, FichaArma>> = {
     // del enemigo y se quedaba dando vueltas sin poder tocarlo —la caballería
     // perdía todos los combates y parecía un problema de equilibrio cuando era
     // geométrico—. `ALCANCE_CUERPO_MINIMO` deja constancia de ese suelo.
-    vida: 140,
+    vida: 115,
     velocidad: 7.2,
     alcance: 2.9,
     cadencia: 1.1,
@@ -217,6 +255,12 @@ export class Batalla {
   /** Momento de la última baja. Gobierna la ruptura de tablas. */
   private ultimaBaja = 0;
 
+  /** Postura de cada arma, por bando. Es el mando de la batalla. */
+  private readonly posturas = new Map<string, Postura>();
+
+  /** Segundos que le quedan de embestida a la caballería de cada bando. */
+  private readonly cargaRestante = new Map<BandoCampana, number>();
+
   /** Cuántos entraron de cada bando, para saber qué fracción sobrevive. */
   private readonly inicialAtacante: Composicion;
   private readonly inicialDefensor: Composicion;
@@ -234,6 +278,18 @@ export class Batalla {
 
     // El atacante entra por el oeste y el defensor aguarda al este. Que siempre
     // sea así importa: quien juega tiene que saber de un vistazo cuál es su lado.
+    // Todo el mundo empieza avanzando: una batalla que arranca parada no arranca.
+    for (const bando of [this.atacante, this.defensor]) {
+      for (const arma of ARMAS) this.posturas.set(claveP(bando, arma), Postura.AVANZAR);
+      this.cargaRestante.set(bando, 0);
+    }
+    // El defensor de una fortificación aguanta: salir es perder su ventaja.
+    if (this.enFuerte) {
+      for (const arma of ARMAS) {
+        this.posturas.set(claveP(this.defensor, arma), Postura.MANTENER);
+      }
+    }
+
     this.desplegar(this.atacante, opciones.composicionAtacante, -1);
     this.desplegar(this.defensor, opciones.composicionDefensor, 1);
   }
@@ -265,7 +321,7 @@ export class Batalla {
         let z = (enFila - (anchoFila - 1) / 2) * 3.4;
         // La caballería se abre hacia los flancos, alternando arriba y abajo.
         if (arma === Arma.CABALLERIA) {
-          z += (i % 2 === 0 ? 1 : -1) * (FONDO_CAMPO / 2 - 7);
+          z += (i % 2 === 0 ? 1 : -1) * (FONDO_CAMPO * 0.34);
         }
 
         // Acotar aquí no es cosmético: el retranqueo de la artillería sumaba
@@ -330,6 +386,43 @@ export class Batalla {
     return cuenta;
   }
 
+  // --- Mando -------------------------------------------------------------------
+
+  /** Postura actual de un arma. */
+  posturaDe(bando: BandoCampana, arma: Arma): Postura {
+    return this.posturas.get(claveP(bando, arma)) ?? Postura.AVANZAR;
+  }
+
+  /** Cambia la postura de un arma del bando que juega la persona. */
+  fijarPostura(arma: Arma, postura: Postura): void {
+    this.posturas.set(claveP(this.bandoJugador, arma), postura);
+  }
+
+  /** Igual, pero para cualquier bando: lo usa la máquina. */
+  fijarPosturaDe(bando: BandoCampana, arma: Arma, postura: Postura): void {
+    this.posturas.set(claveP(bando, arma), postura);
+  }
+
+  /**
+   * Lanza la carga de caballería: unos segundos a velocidad de embestida.
+   *
+   * Es el único botón que no cambia una postura sino que hace algo por sí mismo,
+   * y a propósito: la carga es un momento, no un estado. Se elige cuándo, y esa
+   * elección es medio combate.
+   */
+  lanzarCarga(bando: BandoCampana = this.bandoJugador): boolean {
+    if ((this.cargaRestante.get(bando) ?? 0) > 0) return false;
+    if (this.vivasDe(bando).every((u) => u.arma !== Arma.CABALLERIA)) return false;
+    this.cargaRestante.set(bando, SEGUNDOS_CARGA);
+    this.posturas.set(claveP(bando, Arma.CABALLERIA), Postura.AVANZAR);
+    return true;
+  }
+
+  /** Segundos que le quedan de embestida a un bando. 0 si no está cargando. */
+  cargaDe(bando: BandoCampana): number {
+    return this.cargaRestante.get(bando) ?? 0;
+  }
+
   // --- Órdenes -------------------------------------------------------------------
 
   /**
@@ -362,6 +455,11 @@ export class Batalla {
     if (this.terminada) return;
     this.tiempo += dt;
     this.disparos.length = 0;
+
+    for (const bando of [this.atacante, this.defensor]) {
+      const queda = this.cargaRestante.get(bando) ?? 0;
+      if (queda > 0) this.cargaRestante.set(bando, Math.max(0, queda - dt));
+    }
 
     for (const unidad of this.unidades) {
       if (unidad.estado === EstadoUnidad.MUERTA) continue;
@@ -430,12 +528,30 @@ export class Batalla {
       return;
     }
 
-    // Un defensor atrincherado no sale a campo abierto: es toda su ventaja. Deja
-    // de serlo cuando la batalla se ha detenido del todo y nadie cae: entonces
-    // esperar ya no defiende nada, solo alarga la partida.
+    // La postura manda sobre el instinto. Solo se salta cuando la batalla lleva
+    // demasiado tiempo detenida: un estancamiento no es una defensa, y quedarse
+    // quieto entonces solo alarga la partida sin que pase nada.
     const enTablas = this.tiempo - this.ultimaBaja > SEGUNDOS_SIN_BAJAS_PARA_ROMPER_TABLAS;
-    if (this.enFuerte && unidad.bando === this.defensor && unidad.destinoX === null && !enTablas) {
+    const postura = this.posturaDe(unidad.bando, unidad.arma);
+
+    if (postura === Postura.MANTENER && unidad.destinoX === null && !enTablas) {
+      // Aguanta la posición. Si el enemigo se pone a tiro, ya le disparó arriba.
       unidad.estado = EstadoUnidad.AVANZANDO;
+      if (objetivo) unidad.angulo = Math.atan2(objetivo.z - unidad.z, objetivo.x - unidad.x);
+      return;
+    }
+
+    if (postura === Postura.RETIRAR && unidad.destinoX === null) {
+      // Se va hacia su propio borde, de espaldas al enemigo.
+      const suBorde = unidad.bando === this.atacante ? -MITAD_ANCHO : MITAD_ANCHO;
+      const dxR = suBorde - unidad.x;
+      if (Math.abs(dxR) > 0.5) {
+        const ficha = FICHA[unidad.arma];
+        unidad.estado = EstadoUnidad.AVANZANDO;
+        unidad.angulo = dxR > 0 ? 0 : Math.PI;
+        unidad.x += Math.sign(dxR) * Math.min(Math.abs(dxR), ficha.velocidad * dt);
+        unidad.x = limitar(unidad.x, -MITAD_ANCHO, MITAD_ANCHO);
+      }
       return;
     }
 
@@ -457,7 +573,11 @@ export class Batalla {
 
     unidad.estado = EstadoUnidad.AVANZANDO;
     unidad.angulo = Math.atan2(dz, dx);
-    const avance = Math.min(dist, ficha.velocidad * dt);
+    // La embestida solo afecta a la caballería, y solo mientras dura.
+    const embiste =
+      unidad.arma === Arma.CABALLERIA && (this.cargaRestante.get(unidad.bando) ?? 0) > 0;
+    const velocidad = ficha.velocidad * (embiste ? FACTOR_CARGA : 1);
+    const avance = Math.min(dist, velocidad * dt);
     unidad.x += (dx / dist) * avance;
     unidad.z += (dz / dist) * avance;
 

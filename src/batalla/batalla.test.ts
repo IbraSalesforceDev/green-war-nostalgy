@@ -7,6 +7,7 @@ import {
   FICHA,
   FONDO_CAMPO,
   PASO_BATALLA,
+  Postura,
 } from './batalla';
 import { Arma, BandoCampana, type Composicion } from '../campana/tipos';
 
@@ -65,9 +66,11 @@ describe('el despliegue', () => {
     // La artillería del atacante (que viene del oeste) queda más al oeste aún.
     const mediaX = (us: typeof mias): number => us.reduce((s, u) => s + u.x, 0) / us.length;
     expect(mediaX(artilleria)).toBeLessThan(mediaX(infanteria));
-    // La caballería se despliega lejos del eje central.
+    // La caballería se despliega hacia los flancos, no en el eje central. El
+    // listón va en fracción del fondo y no en unidades sueltas: el campo se
+    // estrechó al pasar a vista de perfil y un número fijo dejó de significar nada.
     const mediaAbsZ = caballeria.reduce((s, u) => s + Math.abs(u.z), 0) / caballeria.length;
-    expect(mediaAbsZ).toBeGreaterThan(8);
+    expect(mediaAbsZ).toBeGreaterThan(FONDO_CAMPO * 0.2);
   });
 });
 
@@ -271,6 +274,104 @@ describe('las órdenes del jugador', () => {
   });
 });
 
+describe('el mando por posturas', () => {
+  it('MANTENER clava a las tropas en el sitio', () => {
+    const batalla = montar([5, 0, 0], [5, 0, 0]);
+    batalla.fijarPostura(Arma.INFANTERIA, Postura.MANTENER);
+    const antes = batalla.vivasDe(BandoCampana.UNION).map((u) => u.x);
+
+    for (let i = 0; i < 150; i++) batalla.paso(PASO_BATALLA);
+
+    for (const [i, u] of batalla.vivasDe(BandoCampana.UNION).entries()) {
+      // Solo la separación entre vecinas puede haberlas movido un pelo.
+      expect(Math.abs(u.x - antes[i]!)).toBeLessThan(2);
+    }
+  });
+
+  it('AVANZAR las lleva hacia el enemigo', () => {
+    const batalla = montar([5, 0, 0], [5, 0, 0]);
+    batalla.fijarPostura(Arma.INFANTERIA, Postura.AVANZAR);
+    const antes = media(batalla.vivasDe(BandoCampana.UNION).map((u) => u.x));
+    for (let i = 0; i < 150; i++) batalla.paso(PASO_BATALLA);
+    expect(media(batalla.vivasDe(BandoCampana.UNION).map((u) => u.x))).toBeGreaterThan(antes);
+  });
+
+  it('RETIRAR las devuelve a su borde', () => {
+    const batalla = montar([5, 0, 0], [5, 0, 0]);
+    // Primero avanzan un poco, para que la retirada se note.
+    for (let i = 0; i < 120; i++) batalla.paso(PASO_BATALLA);
+    const enPunta = media(batalla.vivasDe(BandoCampana.UNION).map((u) => u.x));
+
+    batalla.fijarPostura(Arma.INFANTERIA, Postura.RETIRAR);
+    for (let i = 0; i < 150; i++) batalla.paso(PASO_BATALLA);
+
+    expect(media(batalla.vivasDe(BandoCampana.UNION).map((u) => u.x))).toBeLessThan(enPunta);
+  });
+
+  it('cada arma obedece por separado', () => {
+    const batalla = montar([4, 4, 0], [4, 0, 0]);
+    batalla.fijarPostura(Arma.INFANTERIA, Postura.MANTENER);
+    batalla.fijarPostura(Arma.CABALLERIA, Postura.AVANZAR);
+
+    const inf = () => media(
+      batalla.vivasDe(BandoCampana.UNION).filter((u) => u.arma === Arma.INFANTERIA).map((u) => u.x),
+    );
+    const cab = () => media(
+      batalla.vivasDe(BandoCampana.UNION).filter((u) => u.arma === Arma.CABALLERIA).map((u) => u.x),
+    );
+    const infAntes = inf();
+    const cabAntes = cab();
+
+    for (let i = 0; i < 120; i++) batalla.paso(PASO_BATALLA);
+
+    // La caballería se ha lanzado y la infantería sigue esperando.
+    expect(cab() - cabAntes).toBeGreaterThan(8);
+    expect(Math.abs(inf() - infAntes)).toBeLessThan(3);
+  });
+
+  it('la carga acelera a la caballería mientras dura', () => {
+    const sinCarga = montar([0, 4, 0], [4, 0, 0], { semilla: 5 });
+    for (let i = 0; i < 60; i++) sinCarga.paso(PASO_BATALLA);
+    const recorridoNormal = media(sinCarga.vivasDe(BandoCampana.UNION).map((u) => u.x));
+
+    const conCarga = montar([0, 4, 0], [4, 0, 0], { semilla: 5 });
+    expect(conCarga.lanzarCarga()).toBe(true);
+    for (let i = 0; i < 60; i++) conCarga.paso(PASO_BATALLA);
+    const recorridoCarga = media(conCarga.vivasDe(BandoCampana.UNION).map((u) => u.x));
+
+    expect(recorridoCarga).toBeGreaterThan(recorridoNormal);
+  });
+
+  it('no deja encadenar cargas ni cargar sin caballería', () => {
+    const batalla = montar([0, 3, 0], [3, 0, 0]);
+    expect(batalla.lanzarCarga()).toBe(true);
+    expect(batalla.lanzarCarga(), 'no se puede cargar dos veces seguidas').toBe(false);
+
+    const sinJinetes = montar([4, 0, 0], [4, 0, 0]);
+    expect(sinJinetes.lanzarCarga(), 'no hay caballería que lanzar').toBe(false);
+  });
+
+  it('el defensor de un fuerte empieza aguantando la posición', () => {
+    const batalla = montar([5, 0, 0], [5, 0, 0], { enFuerte: true });
+    expect(batalla.posturaDe(BandoCampana.CONFEDERACION, Arma.INFANTERIA)).toBe(Postura.MANTENER);
+    expect(batalla.posturaDe(BandoCampana.UNION, Arma.INFANTERIA)).toBe(Postura.AVANZAR);
+  });
+
+  it('no acepta mando sobre las armas del enemigo', () => {
+    const batalla = montar([4, 0, 0], [4, 0, 0]);
+    batalla.fijarPostura(Arma.INFANTERIA, Postura.RETIRAR);
+    // `fijarPostura` es siempre del bando que juega la persona.
+    expect(batalla.posturaDe(BandoCampana.UNION, Arma.INFANTERIA)).toBe(Postura.RETIRAR);
+    expect(batalla.posturaDe(BandoCampana.CONFEDERACION, Arma.INFANTERIA)).toBe(Postura.AVANZAR);
+  });
+});
+
+/** Media aritmética; devuelve 0 con lista vacía para no propagar NaN. */
+function media(valores: readonly number[]): number {
+  if (valores.length === 0) return 0;
+  return valores.reduce((a, b) => a + b, 0) / valores.length;
+}
+
 describe('el determinismo', () => {
   it('la misma semilla da exactamente la misma batalla', () => {
     const guionar = (semilla: number): string => {
@@ -284,10 +385,21 @@ describe('el determinismo', () => {
   });
 
   it('semillas distintas dan batallas distintas', () => {
+    // Se compara el desarrollo y no solo el desenlace: dos batallas distintas
+    // pueden acabar igual de igualadas —todos caídos en posiciones parecidas— y
+    // mirar únicamente el estado final daría un falso positivo de determinismo.
     const guionar = (semilla: number): string => {
       const batalla = montar([5, 2, 2], [5, 2, 2], { semilla });
-      resolver(batalla);
-      return batalla.unidades.map((u) => `${u.estado}:${u.x.toFixed(2)}`).join('|');
+      const instantes: string[] = [];
+      for (let i = 0; i < 900 && !batalla.terminada; i++) {
+        batalla.paso(PASO_BATALLA);
+        if (i % 60 === 0) {
+          instantes.push(
+            batalla.unidades.map((u) => `${u.estado}:${u.vida.toFixed(1)}`).join(','),
+          );
+        }
+      }
+      return instantes.join('|');
     };
     expect(guionar(1)).not.toBe(guionar(2));
   });

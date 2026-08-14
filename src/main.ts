@@ -89,7 +89,6 @@ async function arrancar(): Promise<void> {
   campana.alPedirBatalla((choque) => {
     territorioEnDisputa = choque.territorio;
     batalla = crearEscenaBatalla({
-      lienzo,
       capaInterfaz,
       relacionAspecto: renderizador.relacionAspecto,
       atacante: choque.atacante,
