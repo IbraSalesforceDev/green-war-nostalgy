@@ -63,6 +63,17 @@ const COLOR_PEANA: Readonly<Record<BandoCampana, number>> = {
  * sombra—. El aro resuelve las dos cosas de un golpe, y de paso hace que el
  * conjunto se lea como la ficha de un juego de mesa.
  */
+/**
+ * Aro de disponibilidad: oro vivo, el único color del mapa que no es de bando.
+ *
+ * Responde a la primera pregunta que se hace quien abre el juego —«¿y qué toco
+ * yo aquí?»—. Estaba todo lo demás resuelto: al tocar un ejército se elegía, la
+ * provincia se marcaba y se encendían los destinos. Lo que faltaba era antes de
+ * tocar: nada distinguía las quince fichas del tablero, así que las seis que
+ * eran del jugador —y podían moverse— no se veían por ninguna parte.
+ */
+const COLOR_HALO = 0xffd36b;
+
 const COLOR_ARO: Readonly<Record<BandoCampana, number>> = {
   [BandoCampana.NINGUNO]: 0xa8a89c,
   [BandoCampana.UNION]: 0x5b8ae0,
@@ -82,6 +93,11 @@ export interface FichasEjercitos {
   ): void;
   /** Marca visualmente el ejército elegido. */
   fijarSeleccionado(id: number | null): void;
+  /**
+   * Qué ejércitos puede mover quien juega ahora mismo. Se les enciende un aro
+   * en el suelo: es lo que dice «esto se toca», antes de tocar nada.
+   */
+  fijarDisponibles(ids: readonly number[]): void;
   /** Balanceo suave para que el mapa no parezca congelado. */
   actualizar(dt: number): void;
   /** Mallas contra las que lanzar el rayo del puntero. */
@@ -97,6 +113,9 @@ interface Ficha {
   materialPeana: THREE.MeshStandardMaterial;
   aro: THREE.Mesh;
   materialAro: THREE.MeshStandardMaterial;
+  /** Aro de «te toca a ti» en el suelo, alrededor de la peana. */
+  halo: THREE.Mesh;
+  materialHalo: THREE.MeshBasicMaterial;
   /** Una figurilla por arma; se enseñan solo las que el ejército tenga. */
   figuras: THREE.Mesh[];
   idEjercito: number;
@@ -127,7 +146,10 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
   // identificación, no un objeto, y proyectarla solo ensuciaría el suelo.
   const geoAro = new THREE.RingGeometry(4.2, 4.75, 20);
   geoAro.rotateX(-Math.PI / 2);
-  desechables.push(geoPeana, geoAro);
+  // Aro de disponibilidad, por fuera de la peana y apoyado en el mapa.
+  const geoHalo = new THREE.RingGeometry(5.5, 6.9, 28);
+  geoHalo.rotateX(-Math.PI / 2);
+  desechables.push(geoPeana, geoAro, geoHalo);
 
   // Un juego de figuras por bando: el color del uniforme va horneado en los
   // vértices, así que no puede compartirse entre azules y grises.
@@ -179,6 +201,20 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
     grupo.add(aro);
     desechables.push(materialAro);
 
+    // Material básico y sin escribir profundidad: es una marca dibujada sobre el
+    // mapa, no un objeto iluminado, y no debe tapar nada ni recibir sombra.
+    const materialHalo = new THREE.MeshBasicMaterial({
+      color: COLOR_HALO,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const halo = new THREE.Mesh(geoHalo, materialHalo);
+    halo.visible = false;
+    grupo.add(halo);
+    desechables.push(materialHalo);
+
     const figuras: THREE.Mesh[] = [];
     for (const arma of ARMAS) {
       // La geometría definitiva se asigna al sincronizar, cuando se sabe de qué
@@ -199,6 +235,8 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
       materialPeana,
       aro,
       materialAro,
+      halo,
+      materialHalo,
       figuras,
       idEjercito: 0,
       alturaBase: 0,
@@ -210,6 +248,7 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
   }
 
   let seleccionado: number | null = null;
+  let disponibles: ReadonlySet<number> = new Set();
   let reloj = 0;
 
   return {
@@ -273,6 +312,10 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
       seleccionado = id;
     },
 
+    fijarDisponibles(ids): void {
+      disponibles = new Set(ids);
+    },
+
     actualizar(dt): void {
       reloj += dt;
       for (const ficha of fichas) {
@@ -284,6 +327,20 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
           : Math.sin(reloj * 1.4 + ficha.desfase) * 0.05;
         ficha.raiz.position.y = ficha.alturaBase + bote;
         ficha.raiz.rotation.y = elegida ? reloj * 0.8 : 0;
+
+        // El halo solo tiene sentido en las que aún se pueden mover, y sobra en
+        // la que ya está elegida: ésa ya se anuncia flotando y girando.
+        const libre = disponibles.has(ficha.idEjercito) && !elegida;
+        ficha.halo.visible = libre;
+        if (libre) {
+          // Late despacio, con el mismo desfase que el balanceo para que el
+          // conjunto no parezca una guirnalda de luces sincronizadas.
+          ficha.materialHalo.opacity = 0.5 + Math.sin(reloj * 2.2 + ficha.desfase) * 0.28;
+          // La ficha bota, pero su halo está dibujado en el mapa: se descuenta el
+          // balanceo para que no despegue del suelo con ella.
+          ficha.halo.position.y = -bote + 0.02;
+          ficha.halo.rotation.y = -ficha.raiz.rotation.y;
+        }
       }
     },
 

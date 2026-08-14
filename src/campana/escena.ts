@@ -206,10 +206,26 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
   let reanudarCon: 'jugador' | 'ia' | null = null;
   let cbBatalla: (choque: Choque) => void = () => {};
 
+  /**
+   * Los ejércitos que quien juega puede mover ahora mismo.
+   *
+   * Es la misma condición que aplica `seleccionar`, ni más ni menos: propios, en
+   * turno propio y con algún destino legal. Escribirla dos veces sería pedir que
+   * un día el halo prometiera un movimiento que el juego luego rechaza.
+   */
+  function idsMovibles(): number[] {
+    if (campana.bandoActivo !== bandoJugador || batallaEnCurso) return [];
+    return campana
+      .ejercitosDe(bandoJugador)
+      .filter((ejercito) => campana.destinosDe(ejercito.id).length > 0)
+      .map((ejercito) => ejercito.id);
+  }
+
   function refrescar(): void {
     mapa.sincronizar((id) => campana.duenoDe(id));
     fichas.sincronizar(campana.todosLosEjercitos, (id) => mapa.posicionDe(id));
     fichas.fijarSeleccionado(seleccionado?.id ?? null);
+    fichas.fijarDisponibles(idsMovibles());
     mapa.fijarSeleccionado(seleccionado?.territorio ?? null);
     mapa.fijarDestinos(destinos);
     ui.actualizar(campana, seleccionado);
@@ -400,6 +416,14 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     actualizarPuntero(evento);
     const debajo = loQueHayDebajo();
     mapa.fijarResaltado(debajo.territorio);
+
+    // Y cambiar el cursor sobre lo que se puede accionar. Con ratón es la
+    // confirmación más barata que existe de «esto se pulsa»; en un móvil no
+    // hay puntero que valga y por eso el halo tiene que bastar por sí solo.
+    const accionable =
+      (debajo.ejercito !== null && idsMovibles().includes(debajo.ejercito)) ||
+      (seleccionado !== null && debajo.territorio !== null && destinos.includes(debajo.territorio));
+    lienzo.style.cursor = accionable ? 'pointer' : '';
   }
 
   function alPointerUp(evento: PointerEvent): void {
