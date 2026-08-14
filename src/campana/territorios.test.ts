@@ -132,6 +132,71 @@ describe('el mapa de la campaña', () => {
     }
   });
 
+  it('recorre todos los contornos en el mismo sentido', () => {
+    // La prueba de las costuras empareja cada frontera con su gemela recorrida al
+    // revés; eso solo funciona si todos los polígonos giran igual. Un contorno
+    // escrito al revés no rompe el dibujo —el triangulador lo aguanta— pero sí
+    // rompe la comprobación, y entonces el hueco pasaría desapercibido.
+    for (const t of TERRITORIOS) {
+      expect(areaConSigno(t.contorno), `${t.id} está escrito en sentido horario`).toBeGreaterThan(0);
+    }
+  });
+
+  it('no deja huecos entre territorios', () => {
+    // Aquí vivía una errata cara: Arkansas terminaba en y = 34 y Luisiana empezaba
+    // en y = 33, y el Sur aparecía cruzado por una franja de papel en blanco. Con
+    // dieciocho polígonos escritos a mano el fallo es cuestión de tiempo, así que
+    // se comprueba en vez de vigilarse.
+    //
+    // El criterio es el de una malla bien cosida: toda frontera interior tiene que
+    // aparecer dos veces, una por cada lado y recorrida en sentidos opuestos. Las
+    // que aparecen una sola vez son litoral, y esas sí deben quedar sueltas.
+    const dirigidas = new Map<string, string>();
+    for (const t of TERRITORIOS) {
+      for (const [a, b] of aristas(t.contorno)) {
+        const clave = `${a}->${b}`;
+        expect(dirigidas.has(clave), `la frontera ${clave} la dibujan ${dirigidas.get(clave)} y ${t.id} en el mismo sentido`).toBe(false);
+        dirigidas.set(clave, t.id);
+      }
+    }
+
+    // Un vértice que cae en mitad de la arista del vecino —sin ser vértice suyo—
+    // deja una rendija fina que este emparejamiento no vería, así que se busca aparte.
+    const vertices = new Set<string>();
+    for (const t of TERRITORIOS) for (const [a] of aristas(t.contorno)) vertices.add(a);
+
+    const litoral: string[] = [];
+    for (const [clave, dueno] of dirigidas) {
+      const [a, b] = clave.split('->') as [string, string];
+      if (dirigidas.has(`${b}->${a}`)) continue;
+      litoral.push(clave);
+      for (const vertice of vertices) {
+        expect(
+          enMitadDe(vertice, a, b),
+          `un vértice del mapa cae sobre la costa ${clave} de ${dueno} sin ser suyo`,
+        ).toBe(false);
+      }
+    }
+
+    // Y el litoral tiene que ser una única costa cerrada: si fueran dos, el país
+    // estaría partido en dos islas, o habría un agujero en el interior.
+    const siguiente = new Map<string, string>();
+    for (const clave of litoral) {
+      const [a, b] = clave.split('->') as [string, string];
+      expect(siguiente.has(a), `la costa se bifurca en ${a}`).toBe(false);
+      siguiente.set(a, b);
+    }
+    const arranque = litoral[0]!.split('->')[0]!;
+    let actual = siguiente.get(arranque)!;
+    let pasos = 1;
+    while (actual !== arranque && pasos <= litoral.length) {
+      actual = siguiente.get(actual)!;
+      pasos++;
+    }
+    expect(actual, 'la costa no cierra').toBe(arranque);
+    expect(pasos, 'el mapa tiene más de una costa: hay islas o agujeros').toBe(litoral.length);
+  });
+
   it('planta la ficha de cada territorio dentro de su propio contorno', () => {
     // El centro es donde se dibuja el ejército y donde se pulsa para seleccionarlo.
     // Si cae fuera del polígono, la ficha aparece flotando sobre el vecino.
@@ -150,6 +215,37 @@ describe('el mapa de la campaña', () => {
     expect(masAlSurDelNorte).toBeGreaterThan(masAlNorteDelSur);
   });
 });
+
+/** Las aristas de un contorno, como pares de vértices en texto para poder compararlos. */
+function aristas(contorno: readonly (readonly [number, number])[]): Array<[string, string]> {
+  return contorno.map((punto, indice) => {
+    const siguiente = contorno[(indice + 1) % contorno.length]!;
+    return [`${punto[0]},${punto[1]}`, `${siguiente[0]},${siguiente[1]}`];
+  });
+}
+
+/** Fórmula del cordón de zapato. Positiva si el polígono gira en antihorario. */
+function areaConSigno(contorno: readonly (readonly [number, number])[]): number {
+  let suma = 0;
+  for (let i = 0; i < contorno.length; i++) {
+    const [x1, y1] = contorno[i]!;
+    const [x2, y2] = contorno[(i + 1) % contorno.length]!;
+    suma += x1 * y2 - x2 * y1;
+  }
+  return suma / 2;
+}
+
+/** ¿Cae `punto` sobre el segmento `a`–`b` sin ser ninguno de sus extremos? */
+function enMitadDe(punto: string, a: string, b: string): boolean {
+  if (punto === a || punto === b) return false;
+  const [px, py] = punto.split(',').map(Number) as [number, number];
+  const [ax, ay] = a.split(',').map(Number) as [number, number];
+  const [bx, by] = b.split(',').map(Number) as [number, number];
+  const cruz = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+  if (Math.abs(cruz) > 1e-9) return false;
+  const producto = (px - ax) * (bx - ax) + (py - ay) * (by - ay);
+  return producto > 0 && producto < (bx - ax) ** 2 + (by - ay) ** 2;
+}
 
 /** Cruce de rayos clásico: cuenta cortes con el polígono hacia la derecha. */
 function puntoEnPoligono(

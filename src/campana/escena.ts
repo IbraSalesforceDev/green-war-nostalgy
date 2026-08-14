@@ -39,7 +39,24 @@ import {
 const RITMO_IA = 0.55;
 
 const DISTANCIA_MIN = 45;
-const DISTANCIA_MAX = 220;
+/**
+ * Con un campo de visión estrecho la cámara tiene que irse mucho más lejos para
+ * encuadrar lo mismo, así que el techo sube en la misma proporción.
+ */
+const DISTANCIA_MAX = 700;
+
+/**
+ * Campo de visión de la cámara del mapa.
+ *
+ * Muy estrecho, y a propósito. Con los 48° de antes el mapa salía en trapecio
+ * —la orilla cercana ensanchada y la lejana estrechada—, y esa deformación era
+ * buena parte de lo que hacía que el mapa «se viera raro»: la silueta del país
+ * dejaba de ser la del país. La culpa no era de la inclinación sino de la
+ * apertura: es la divergencia de los rayos la que abre el trapecio. Cerrando el
+ * objetivo y alejando la cámara —lo mismo que hace un teleobjetivo— las líneas
+ * salen casi paralelas y la lámina se lee plana, que es como se mira un mapa.
+ */
+const CAMPO_VISION = 28;
 
 /**
  * Lo que ocupa el mapa una vez proyectado, en unidades de escena. El alto sale
@@ -47,11 +64,11 @@ const DISTANCIA_MAX = 220;
  */
 const EXTENSION_ANCHO = 105;
 /**
- * El alto no es `100 · sen(inclinación)` como diría la trigonometría a secas: la
- * perspectiva agranda la mitad cercana del mapa, y medido sobre una captura real
- * ocupa cerca de un 8 % más que la proyección ideal. Ese margen está aquí dentro.
+ * A 60° de elevación la profundidad se acorta por el seno del ángulo, un 13 %.
+ * Es un acortamiento uniforme —no una deformación—, así que la silueta se sigue
+ * leyendo bien; solo hay que descontarlo al encuadrar.
  */
-const EXTENSION_ALTO = 88;
+const EXTENSION_ALTO = 95;
 
 const APROVECHAMIENTO_ANCHO = 0.9;
 
@@ -82,8 +99,18 @@ function distanciaParaEncuadrar(fovGrados: number, aspecto: number, altoCss: num
   return Math.min(DISTANCIA_MAX, Math.max(porAlto, porAncho));
 }
 
-/** Inclinación de la cámara. Cenital del todo se lee peor: quita todo el relieve. */
-const INCLINACION = 0.95;
+/**
+ * Inclinación de la cámara sobre el mapa: 60° sobre la horizontal.
+ *
+ * El primer intento de arreglar el mapa fue subir la cámara casi a cenital,
+ * culpando a la inclinación de la deformación. Era el diagnóstico equivocado —el
+ * trapecio lo abría el campo de visión, no el ángulo— y encima cobraba un precio:
+ * desde arriba del todo las figuras de los ejércitos se veían por el sombrero y
+ * no se distinguía un jinete de un cañón. Con el objetivo ya cerrado la lámina se
+ * lee plana igualmente, así que la cámara puede volver a bajar hasta donde las
+ * figuras enseñan su silueta.
+ */
+const INCLINACION = 1.05;
 
 export interface EscenaCampana {
   actualizar(dt: number): void;
@@ -122,13 +149,15 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
 
   // --- Escena y luces ---
   const escena = new THREE.Scene();
-  escena.background = new THREE.Color(0x1a2836);
-  escena.fog = new THREE.Fog(0x1a2836, 170, 300);
+  // Fondo de mesa de trabajo: el mapa es una lámina apoyada encima, y el margen
+  // oscuro la enmarca en vez de competir con ella.
+  escena.background = new THREE.Color(0x2a2118);
 
-  // Intensidades contenidas: con el mapeo de tonos ACES del renderizador, pasarse
-  // aquí no ilumina más, solo lava el color hasta dejar el mapa blanco.
-  const sol = new THREE.DirectionalLight(0xfff2d8, 1.45);
-  sol.position.set(-55, 90, 45);
+  // El mapa se pinta con materiales básicos, que no dependen de la luz: así el
+  // color de cada tinta sale exacto y plano, sin un lado más apagado que otro.
+  // Las luces quedan solo para las fichas de los ejércitos, que sí tienen volumen.
+  const sol = new THREE.DirectionalLight(0xfff2d8, 2.6);
+  sol.position.set(-45, 80, 40);
   if (opciones.conSombras !== false) {
     sol.castShadow = true;
     sol.shadow.mapSize.set(1024, 1024);
@@ -141,10 +170,10 @@ export function crearEscenaCampana(opciones: OpcionesEscena): EscenaCampana {
     c.far = 220;
   }
   escena.add(sol);
-  escena.add(new THREE.HemisphereLight(0xbcd8f0, 0x3a3020, 0.65));
+  escena.add(new THREE.HemisphereLight(0xf2e8d0, 0x8a7a58, 1.5));
 
   // --- Cámara ---
-  const camara = new THREE.PerspectiveCamera(48, relacionAspecto, 1, 500);
+  const camara = new THREE.PerspectiveCamera(CAMPO_VISION, relacionAspecto, 1, 1200);
   let objetivoX = 0;
   // Apuntar un poco al norte del centro real baja el mapa en pantalla, que es
   // justo lo que hace falta para que no se meta debajo de la barra de turno.

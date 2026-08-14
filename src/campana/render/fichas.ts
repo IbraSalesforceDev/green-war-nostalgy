@@ -33,6 +33,17 @@ const MAX_FICHAS = 24;
 const ALTURA_PEANA = 0.05;
 
 /**
+ * Tamaño de las figurillas sobre la peana, antes de crecer con las tropas.
+ *
+ * Deliberadamente fuera de escala. El mapa entero cabe en una pantalla, así que
+ * un soldado a proporción mide una docena de píxeles y no se lee: la ficha
+ * acaba siendo un disco de color y da igual qué lleve dentro. Agrandadas hasta
+ * desbordar un poco la peana se reconoce el arma de un vistazo, que es para lo
+ * único que están.
+ */
+const ESCALA_FIGURA = 2.0;
+
+/**
  * La peana va mucho más oscura que el territorio que pisa, no del color del bando.
  *
  * Parece contraintuitivo, pero teñirla del color del bando la hacía desaparecer:
@@ -105,10 +116,16 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
   // Geometrías compartidas por todas las fichas: se crean una vez y se reutilizan.
   // Las fichas se dimensionan para el dedo, no para el ojo: en un mapa que cabe
   // entero en la pantalla de un móvil, una ficha «a escala» sería intocable.
-  const geoPeana = new THREE.CylinderGeometry(3.45, 3.75, 0.42, 16);
+  //
+  // Y con las figurillas pasa lo mismo llevado un paso más allá. Se modelaron a
+  // proporción humana sobre la peana y en pantalla salían manchas oscuras de
+  // trece píxeles: no se distinguía un jinete de un cañón, que es justo lo único
+  // que la ficha tiene que decir. Aquí mandan la silueta y la distancia de
+  // lectura, no la escala; son miniaturas de tablero, no maquetas.
+  const geoPeana = new THREE.CylinderGeometry(4.8, 5.15, 0.42, 16);
   // Aro plano justo sobre el canto de la peana. Va sin sombras: es una marca de
   // identificación, no un objeto, y proyectarla solo ensuciaría el suelo.
-  const geoAro = new THREE.RingGeometry(3.0, 3.55, 20);
+  const geoAro = new THREE.RingGeometry(4.2, 4.75, 20);
   geoAro.rotateX(-Math.PI / 2);
   desechables.push(geoPeana, geoAro);
 
@@ -234,10 +251,10 @@ export function crearFichasEjercitos(escena: THREE.Scene): FichasEjercitos {
           const figura = ficha.figuras[arma]!;
           figura.visible = true;
           figura.geometry = juego[arma];
-          const desplazamiento = (indice - (presentes.length - 1) / 2) * 1.95;
+          const desplazamiento = (indice - (presentes.length - 1) / 2) * 2.55;
           // Cada figurilla crece un poco con los suyos, sin llegar a deformarse.
           const cuantos = ejercito.composicion[arma];
-          const bulto = 1.05 + Math.min(1, cuantos / 12) * 0.32;
+          const bulto = ESCALA_FIGURA + Math.min(1, cuantos / 12) * 0.55;
           figura.scale.setScalar(bulto);
           figura.position.set(desplazamiento, 0.2, 0);
         });

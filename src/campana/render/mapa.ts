@@ -4,11 +4,17 @@ import { TERRITORIOS, type Territorio } from '../territorios';
 import { BandoCampana, type IdTerritorio } from '../tipos';
 
 /**
- * El mapa de campaña dibujado en tres dimensiones.
+ * El mapa de campaña, dibujado como una lámina.
  *
- * Cada territorio es su polígono extruido, con el color de quien lo controla y un
- * reborde oscuro. El aire de cómic no sale de ningún filtro caro: sale de colores
- * planos, siluetas gruesas y una altura ligera que separa la tierra del mar.
+ * Cada territorio es su polígono plano, con el color de quien lo controla y su
+ * frontera trazada a tinta encima. El aire de mapa antiguo no sale de ningún
+ * filtro caro: sale de colores aguados, trazos oscuros y el papel asomando por
+ * los huecos.
+ *
+ * Antes iba en relieve, con cada provincia extruida como una losa. Daba volumen
+ * pero también sombras propias y cantos, y el país quedaba roto en dieciocho
+ * bloques sueltos que no se reconocían. Plano se lee mejor —que es lo que se le
+ * pide a un mapa— y además es lo que enseñaba el original.
  *
  * ── Del mapa plano al espacio ────────────────────────────────────────────────
  * Los territorios se definen en coordenadas de mapa —`x` de oeste a este, `y` de
@@ -26,29 +32,50 @@ import { BandoCampana, type IdTerritorio } from '../tipos';
 /** Tamaño del mapa en unidades de escena. Los datos vienen en 0..100. */
 const ESCALA = 1;
 
-/** Grosor de la tierra. Suficiente para que se vea el canto contra el mar. */
-const ALTURA_TIERRA = 1.6;
-
-/** Redondeo del canto. Suaviza la arista contra el mar. */
-const BISEL_TIERRA = 0.25;
+/**
+ * Centro real del dibujo.
+ *
+ * No es (50, 50): el país ocupa de 11 a 97 a lo ancho y de 3 a 93 a lo alto, así
+ * que restar 50 lo dejaba descolgado hacia un lado de la lámina. Se resta su
+ * centro de verdad para que quede centrado sobre el papel.
+ */
+const CENTRO_X = 54;
+const CENTRO_Y = 48;
 
 /**
- * Altura real de la superficie pisable.
+ * El mapa es plano, no un relieve.
  *
- * `ExtrudeGeometry` no termina en `depth`: el bisel añade su grosor **por encima**
- * de la extrusión, de modo que la cara de arriba queda en `depth + bevelThickness`.
- * Dar por bueno `ALTURA_TIERRA` a secas enterraba las peanas de los ejércitos un
- * cuarto de unidad bajo el terreno, y solo se notaba en los territorios que la
- * cámara veía de frente.
+ * La versión anterior extruía cada territorio como una losa de tierra. Daba
+ * volumen, sí, pero también sombras propias, cantos y una silueta rota por
+ * dieciocho bloques sueltos: el país no se reconocía. Una lámina plana con sus
+ * fronteras a tinta se lee de un vistazo y es, además, lo que enseñaba el
+ * original.
+ *
+ * Queda una altura mínima, la justa para que las fichas de los ejércitos se
+ * apoyen encima y no compitan en el mismo plano con el dibujo del mapa.
  */
-export const ALTURA_SUPERFICIE = ALTURA_TIERRA + BISEL_TIERRA;
+export const ALTURA_SUPERFICIE = 0.12;
 
-/** Colores base de cada bando, en tono cómic: planos y saturados sin chillar. */
+/**
+ * Colores de bando sobre papel.
+ *
+ * Más apagados y cálidos que los de antes: sobre una lámina de mapa, un azul
+ * saturado canta como una aplicación web y rompe la ilusión. Estos son tintas
+ * aguadas, que es como se coloreaban los mapas de la época.
+ */
 const COLOR_BANDO: Readonly<Record<BandoCampana, number>> = {
-  [BandoCampana.NINGUNO]: 0x9a9a92,
-  [BandoCampana.UNION]: 0x4a6fae,
-  [BandoCampana.CONFEDERACION]: 0x9a8f7a,
+  [BandoCampana.NINGUNO]: 0xa89f88,
+  [BandoCampana.UNION]: 0x7f9ec4,
+  // Bien separado del papel: el primer pardo elegido quedaba a un pelo del color
+  // de la lámina y el Sur entero desaparecía contra el mar.
+  [BandoCampana.CONFEDERACION]: 0xb9a173,
 };
+
+/** Tinta de las fronteras y del contorno de la costa. */
+const COLOR_TINTA = 0x4a3a24;
+
+/** El papel sobre el que está dibujado el mapa. Más claro que cualquier bando. */
+const COLOR_PAPEL = 0xdccaa6;
 
 export interface MapaCampana {
   readonly raiz: THREE.Group;
@@ -71,13 +98,13 @@ export interface MapaCampana {
 
 /** Lleva un punto del mapa (x, y) al plano de la escena. */
 export function aEscena(x: number, y: number, alto = 0): THREE.Vector3 {
-  return new THREE.Vector3((x - 50) * ESCALA, alto, -(y - 50) * ESCALA);
+  return new THREE.Vector3((x - CENTRO_X) * ESCALA, alto, -(y - CENTRO_Y) * ESCALA);
 }
 
 interface PiezaTerritorio {
   territorio: Territorio;
   malla: THREE.Mesh;
-  material: THREE.MeshStandardMaterial;
+  material: THREE.MeshBasicMaterial;
   /** Color que le toca por dueño, antes de resaltados. */
   colorBase: THREE.Color;
 }
@@ -95,38 +122,43 @@ export function crearMapaCampana(escena: THREE.Scene): MapaCampana {
   for (const territorio of TERRITORIOS) {
     const forma = new THREE.Shape();
     territorio.contorno.forEach(([x, y], indice) => {
-      const px = (x - 50) * ESCALA;
-      const py = (y - 50) * ESCALA;
+      const px = (x - CENTRO_X) * ESCALA;
+      const py = (y - CENTRO_Y) * ESCALA;
       if (indice === 0) forma.moveTo(px, py);
       else forma.lineTo(px, py);
     });
     forma.closePath();
 
-    const geometria = new THREE.ExtrudeGeometry(forma, {
-      depth: ALTURA_TIERRA,
-      bevelEnabled: true,
-      bevelThickness: BISEL_TIERRA,
-      bevelSize: 0.35,
-      bevelSegments: 1,
-    });
-    // La forma se dibuja en XY y se extruye hacia +Z; esta rotación la tumba al
-    // plano del suelo y convierte la extrusión en altura.
+    // Superficie plana. `ShapeGeometry` la genera ya en el plano XY; una rotación
+    // la tumba al suelo.
+    const geometria = new THREE.ShapeGeometry(forma);
     geometria.rotateX(-Math.PI / 2);
     desechables.push(geometria);
 
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.92,
-      metalness: 0,
-      flatShading: true,
-    });
+    // Sin relieve no hay luces que valgan: un material básico da el color plano y
+    // exacto de una tinta, sin que el sol lo apague por un lado.
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
     desechables.push(material);
 
     const malla = new THREE.Mesh(geometria, material);
-    malla.receiveShadow = true;
-    malla.castShadow = false;
+    malla.position.y = ALTURA_SUPERFICIE;
     malla.userData.territorio = territorio.id;
     raiz.add(malla);
+
+    // Frontera a tinta: el trazo que convierte manchas de color en un mapa.
+    const puntos = territorio.contorno.map(
+      ([x, y]) =>
+        new THREE.Vector3(
+          (x - CENTRO_X) * ESCALA,
+          ALTURA_SUPERFICIE + 0.02,
+          -(y - CENTRO_Y) * ESCALA,
+        ),
+    );
+    puntos.push(puntos[0]!.clone());
+    const geoBorde = new THREE.BufferGeometry().setFromPoints(puntos);
+    const matBorde = new THREE.LineBasicMaterial({ color: COLOR_TINTA });
+    raiz.add(new THREE.Line(geoBorde, matBorde));
+    desechables.push(geoBorde, matBorde);
 
     piezas.set(territorio.id, {
       territorio,
@@ -140,17 +172,42 @@ export function crearMapaCampana(escena: THREE.Scene): MapaCampana {
     anadirEmblemas(raiz, territorio, desechables);
   }
 
-  // El mar: un plano bajo la tierra que asoma por los huecos entre territorios y
-  // les da el reborde de costa sin tener que dibujar ninguna línea.
-  const mar = new THREE.Mesh(
-    new THREE.PlaneGeometry(260, 260),
-    new THREE.MeshStandardMaterial({ color: 0x2c4a63, roughness: 1, metalness: 0 }),
+  // La costa, trazada gruesa alrededor de todo el país.
+  //
+  // Es lo que separa un mapa de un mosaico de manchas. Las fronteras interiores
+  // van a línea fina y esta a banda ancha: la jerarquía de trazo es la que hace
+  // que el ojo lea primero la silueta —Florida colgando, el golfo, Nueva
+  // Inglaterra— y solo después el reparto de provincias.
+  const costa = bandaDelLitoral(1.5);
+  raiz.add(costa);
+  desechables.push(costa.geometry, costa.material as THREE.Material);
+
+  // El papel sobre el que está dibujado todo. Asoma por los huecos entre
+  // territorios y hace de mar y de márgenes a la vez. Acotado al tamaño de una
+  // lámina: si cubre toda la vista, el mapa deja de parecer un objeto sobre una
+  // mesa y pasa a ser un fondo sin más.
+  const papel = new THREE.Mesh(
+    new THREE.PlaneGeometry(124, 124),
+    new THREE.MeshBasicMaterial({ color: COLOR_PAPEL }),
   );
-  mar.rotation.x = -Math.PI / 2;
-  mar.position.y = -0.35;
-  mar.receiveShadow = true;
-  raiz.add(mar);
-  desechables.push(mar.geometry, mar.material as THREE.Material);
+  papel.rotation.x = -Math.PI / 2;
+  raiz.add(papel);
+
+  // Filo de la lámina, para que se despegue del fondo.
+  const filo = new THREE.Mesh(
+    new THREE.PlaneGeometry(128, 128),
+    new THREE.MeshBasicMaterial({ color: 0x8a7550 }),
+  );
+  filo.rotation.x = -Math.PI / 2;
+  filo.position.y = -0.02;
+  raiz.add(filo);
+
+  desechables.push(
+    papel.geometry,
+    papel.material as THREE.Material,
+    filo.geometry,
+    filo.material as THREE.Material,
+  );
 
   let resaltado: IdTerritorio | null = null;
   let seleccionado: IdTerritorio | null = null;
@@ -245,6 +302,107 @@ export function crearMapaCampana(escena: THREE.Scene): MapaCampana {
       escena.remove(raiz);
     },
   };
+}
+
+/**
+ * El litoral del país, deducido de los propios territorios.
+ *
+ * No hay ninguna lista de costa que mantener: una frontera que solo dibuja un
+ * territorio es, por definición, litoral —las interiores las dibujan los dos
+ * vecinos, cada uno en un sentido—. Encadenando las que quedan sueltas sale el
+ * contorno del país. Así, al retocar una provincia de la orilla, la costa se
+ * mueve con ella sin que haya que acordarse de nada.
+ */
+function litoral(): Array<readonly [number, number]> {
+  const clave = (punto: readonly [number, number]): string => `${punto[0]},${punto[1]}`;
+  const dirigidas = new Set<string>();
+  const puntoPorClave = new Map<string, readonly [number, number]>();
+  for (const territorio of TERRITORIOS) {
+    const contorno = territorio.contorno;
+    for (let i = 0; i < contorno.length; i++) {
+      const a = contorno[i]!;
+      const b = contorno[(i + 1) % contorno.length]!;
+      dirigidas.add(`${clave(a)}->${clave(b)}`);
+      puntoPorClave.set(clave(a), a);
+    }
+  }
+
+  const siguiente = new Map<string, string>();
+  for (const arista of dirigidas) {
+    const [a, b] = arista.split('->') as [string, string];
+    if (dirigidas.has(`${b}->${a}`)) continue; // frontera interior
+    siguiente.set(a, b);
+  }
+
+  const arranque = siguiente.keys().next().value as string;
+  const cadena: Array<readonly [number, number]> = [];
+  let actual = arranque;
+  do {
+    cadena.push(puntoPorClave.get(actual)!);
+    actual = siguiente.get(actual)!;
+  } while (actual !== arranque && cadena.length <= siguiente.size);
+  return cadena;
+}
+
+/**
+ * La banda de tinta que dibuja la costa, de `grosor` unidades hacia fuera.
+ *
+ * Se construye como un polígono con agujero: el contorno del país desplazado
+ * hacia el mar, y el propio país recortado dentro. Cada vértice se empuja por la
+ * bisectriz de sus dos aristas, que es lo que mantiene el grosor constante en
+ * las esquinas en vez de estrangularlo.
+ *
+ * Los territorios van en sentido antihorario, así que el mar queda a la derecha
+ * de cada arista de litoral: ese es el lado hacia el que se empuja.
+ */
+function bandaDelLitoral(grosor: number): THREE.Mesh {
+  const costa = litoral();
+  const fuera = costa.map((punto, indice) => {
+    const previo = costa[(indice - 1 + costa.length) % costa.length]!;
+    const posterior = costa[(indice + 1) % costa.length]!;
+    const normal = new THREE.Vector2();
+    for (const [desde, hasta] of [
+      [previo, punto],
+      [punto, posterior],
+    ] as const) {
+      // Normal a la derecha de la arista: el mar.
+      const salida = new THREE.Vector2(hasta[1] - desde[1], desde[0] - hasta[0]);
+      if (salida.lengthSq() > 0) normal.add(salida.normalize());
+    }
+    if (normal.lengthSq() === 0) normal.set(0, 1);
+    normal.normalize().multiplyScalar(grosor);
+    return [punto[0] + normal.x, punto[1] + normal.y] as const;
+  });
+
+  const forma = new THREE.Shape();
+  fuera.forEach(([x, y], indice) => {
+    const px = (x - CENTRO_X) * ESCALA;
+    const py = (y - CENTRO_Y) * ESCALA;
+    if (indice === 0) forma.moveTo(px, py);
+    else forma.lineTo(px, py);
+  });
+  forma.closePath();
+
+  const hueco = new THREE.Path();
+  costa.forEach(([x, y], indice) => {
+    const px = (x - CENTRO_X) * ESCALA;
+    const py = (y - CENTRO_Y) * ESCALA;
+    if (indice === 0) hueco.moveTo(px, py);
+    else hueco.lineTo(px, py);
+  });
+  hueco.closePath();
+  forma.holes.push(hueco);
+
+  const geometria = new THREE.ShapeGeometry(forma);
+  geometria.rotateX(-Math.PI / 2);
+  const malla = new THREE.Mesh(
+    geometria,
+    new THREE.MeshBasicMaterial({ color: COLOR_TINTA }),
+  );
+  // Justo por debajo de los territorios: si empatan en altura, el z-fighting
+  // hace parpadear la costa al girar la cámara.
+  malla.position.y = ALTURA_SUPERFICIE - 0.01;
+  return malla;
 }
 
 /**

@@ -8,6 +8,26 @@ import { BandoCampana, type IdTerritorio } from './tipos';
  * permite guardar y restaurar una partida entera con un puñado de enteros, sin
  * arrastrar la geometría.
  *
+ * ── Sobre el dibujo ──────────────────────────────────────────────────────────
+ * Los contornos no son losas sueltas: entre todos componen la silueta del país
+ * —la costa oeste en diagonal, la frontera recta del norte, el golfo de México,
+ * la península de Florida y la costa este subiendo hasta Nueva Inglaterra—. La
+ * primera versión eran dieciocho cuadriláteros y el mapa no se reconocía; que se
+ * vea de un vistazo dónde está uno es la mitad de lo que hace legible un mapa de
+ * campaña.
+ *
+ * Y no se escriben vértice a vértice: se arman con los puntos del retículo `V`.
+ * La razón es una errata que costó encontrar. Arkansas terminaba en `y = 34` y
+ * Luisiana empezaba en `y = 33`: sobre el papel, una franja blanca de una unidad
+ * de ancho cruzando el Sur de lado a lado. Con dieciocho polígonos escritos a
+ * mano ese fallo es cuestión de tiempo. Compartiendo el vértice —literalmente el
+ * mismo objeto— la costura no puede abrirse, y lo que antes era vigilancia pasa
+ * a ser imposible por construcción.
+ *
+ * Todos los contornos van en sentido antihorario. No es decorativo: la prueba
+ * que comprueba que el mapa no tiene huecos se apoya en ello para emparejar cada
+ * frontera interior con su gemela recorrida al revés.
+ *
  * ── Sobre las coordenadas ────────────────────────────────────────────────────
  * `x` va de 0 (Pacífico) a 100 (Atlántico) e `y` de 0 (golfo de México) a 100
  * (frontera canadiense). Son las que usa el render para colocar el mapa y las
@@ -46,6 +66,85 @@ const U = BandoCampana.UNION;
 const C = BandoCampana.CONFEDERACION;
 const N = BandoCampana.NINGUNO;
 
+type Punto = readonly [number, number];
+const p = (x: number, y: number): Punto => [x, y];
+
+/**
+ * El retículo del que salen todos los contornos.
+ *
+ * Cada punto que dos o más territorios comparten está aquí una sola vez, con un
+ * nombre que dice qué separa. Los grupos son las tres líneas horizontales que
+ * organizan el país de norte a sur —la frontera canadiense, la línea de los
+ * Grandes Lagos y el Misuri, y la Mason-Dixon— más el litoral.
+ *
+ * Que los nombres digan a quién separan («b» de la Mason-Dixon, `bArkansasTennessee`)
+ * no es adorno: al retocar una frontera se ve de un vistazo a quién se le mueve
+ * el suelo bajo los pies.
+ */
+const V = {
+  // ── La frontera del norte, recta como la trazaron los tratados ────────────
+  esquinaNoroeste: p(11, 93),
+  nOregonDakota: p(31, 93),
+  nDakotaMinnesota: p(50, 93),
+  nMinnesotaMichigan: p(67, 93),
+  nMichiganLagos: p(80, 92),
+  lagos: p(85, 84),
+  neCaboNorte: p(91, 87),
+  neMaine: p(97, 81),
+
+  // ── Línea «a»: los Grandes Lagos y el alto Misuri ─────────────────────────
+  aCostaPacifico: p(13, 72),
+  aOregonCalifornia: p(30, 72),
+  aDakotaMinnesota: p(48, 72),
+  aNebraskaIllinois: p(54, 72),
+  aMinnesotaMichigan: p(65, 72),
+  aIllinoisPensilvania: p(71, 71),
+  aMichiganNuevaInglaterra: p(82, 70),
+  aCostaAtlantico: p(95, 70),
+
+  // ── Línea «b»: la Mason-Dixon, el frente inicial de la guerra ─────────────
+  bCostaPacifico: p(17, 54),
+  bCaliforniaNebraska: p(27, 54),
+  bNuevoMexicoArkansas: p(33, 54),
+  bNebraskaIllinois: p(48, 54),
+  bArkansasTennessee: p(62, 54),
+  bIllinoisPensilvania: p(70, 54),
+  bTennesseeVirginia: p(84, 55),
+  bCostaAtlantico: p(93, 57),
+
+  // ── Línea «c»: el umbral del Sur profundo ─────────────────────────────────
+  cFronteraSur: p(24, 33),
+  cNuevoMexicoArkansas: p(44, 34),
+  cTexasLuisiana: p(51, 36),
+  cLuisianaMisisipi: p(66, 37),
+  cArkansasTennessee: p(71, 38),
+  cMisisipiCarolinas: p(80, 40),
+  cTennesseeVirginia: p(86, 41),
+  cCostaAtlantico: p(96, 47),
+
+  // ── El Pacífico ───────────────────────────────────────────────────────────
+  wCaliforniaSur: p(19, 44),
+
+  // ── El golfo de México, de oeste a este ───────────────────────────────────
+  gTexasOeste: p(27, 22),
+  gTexasPunta: p(35, 7),
+  gTexasEste: p(46, 11),
+  gTexasLuisiana: p(52, 20),
+  gDelta: p(61, 15),
+  gLuisianaMisisipi: p(68, 20),
+  gMisisipiFlorida: p(79, 21),
+  gFloridaCarolinas: p(85, 24),
+
+  // ── La península de Florida, que es lo que hace reconocible el mapa ───────
+  fOeste: p(83, 12),
+  fPunta: p(87, 3),
+  fEste: p(91, 12),
+  fNordeste: p(89, 24),
+
+  // ── El Atlántico sur ──────────────────────────────────────────────────────
+  eCarolinas: p(92, 30),
+} as const;
+
 /**
  * Los territorios, de oeste a este y de norte a sur.
  *
@@ -58,9 +157,9 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'oregon',
     nombre: 'Oregón',
-    x: 11,
-    y: 85,
-    contorno: [[2, 74], [22, 76], [23, 96], [3, 97]],
+    x: 21,
+    y: 83,
+    contorno: [V.aCostaPacifico, V.aOregonCalifornia, V.nOregonDakota, V.esquinaNoroeste],
     vecinos: ['california', 'dakota'],
     renta: 1,
     puerto: true,
@@ -71,9 +170,11 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'california',
     nombre: 'California',
-    x: 10,
-    y: 62,
-    contorno: [[3, 50], [21, 52], [22, 74], [2, 74]],
+    x: 22,
+    y: 63,
+    contorno: [
+      V.bCostaPacifico, V.bCaliforniaNebraska, V.aOregonCalifornia, V.aCostaPacifico,
+    ],
     vecinos: ['oregon', 'nebraska', 'nuevoMexico'],
     renta: 3,
     puerto: true,
@@ -84,9 +185,9 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'dakota',
     nombre: 'Dakota',
-    x: 35,
-    y: 85,
-    contorno: [[23, 76], [47, 78], [48, 97], [23, 96]],
+    x: 40,
+    y: 82,
+    contorno: [V.aOregonCalifornia, V.aDakotaMinnesota, V.nDakotaMinnesota, V.nOregonDakota],
     vecinos: ['oregon', 'nebraska', 'minnesota'],
     renta: 1,
     puerto: false,
@@ -97,9 +198,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'nebraska',
     nombre: 'Nebraska',
-    x: 36,
-    y: 65,
-    contorno: [[21, 52], [48, 55], [47, 78], [22, 76]],
+    x: 40,
+    y: 63,
+    contorno: [
+      V.bCaliforniaNebraska, V.bNuevoMexicoArkansas, V.bNebraskaIllinois, V.aNebraskaIllinois,
+      V.aDakotaMinnesota, V.aOregonCalifornia,
+    ],
     vecinos: ['california', 'dakota', 'minnesota', 'illinois', 'nuevoMexico', 'arkansas'],
     renta: 2,
     puerto: false,
@@ -110,9 +214,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'minnesota',
     nombre: 'Minnesota',
-    x: 55,
-    y: 86,
-    contorno: [[48, 78], [66, 79], [67, 97], [48, 97]],
+    x: 58,
+    y: 81,
+    contorno: [
+      V.aDakotaMinnesota, V.aNebraskaIllinois, V.aMinnesotaMichigan, V.nMinnesotaMichigan,
+      V.nDakotaMinnesota,
+    ],
     vecinos: ['dakota', 'nebraska', 'illinois', 'michigan'],
     renta: 2,
     puerto: false,
@@ -123,9 +230,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'illinois',
     nombre: 'Illinois',
-    x: 58,
-    y: 67,
-    contorno: [[48, 55], [68, 57], [66, 79], [47, 78]],
+    x: 61,
+    y: 63,
+    contorno: [
+      V.bNebraskaIllinois, V.bArkansasTennessee, V.bIllinoisPensilvania,
+      V.aIllinoisPensilvania, V.aMinnesotaMichigan, V.aNebraskaIllinois,
+    ],
     vecinos: ['nebraska', 'minnesota', 'michigan', 'pensilvania', 'arkansas', 'tennessee'],
     renta: 3,
     puerto: false,
@@ -136,9 +246,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'michigan',
     nombre: 'Michigan',
-    x: 72,
-    y: 84,
-    contorno: [[66, 79], [82, 76], [84, 94], [67, 97]],
+    x: 75,
+    y: 80,
+    contorno: [
+      V.aMinnesotaMichigan, V.aIllinoisPensilvania, V.aMichiganNuevaInglaterra, V.lagos,
+      V.nMichiganLagos, V.nMinnesotaMichigan,
+    ],
     vecinos: ['minnesota', 'illinois', 'pensilvania'],
     renta: 2,
     puerto: false,
@@ -149,9 +262,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'pensilvania',
     nombre: 'Pensilvania',
-    x: 80,
-    y: 68,
-    contorno: [[68, 57], [88, 58], [89, 76], [82, 76], [66, 79]],
+    x: 83,
+    y: 63,
+    contorno: [
+      V.bIllinoisPensilvania, V.bTennesseeVirginia, V.bCostaAtlantico, V.aCostaAtlantico,
+      V.aMichiganNuevaInglaterra, V.aIllinoisPensilvania,
+    ],
     vecinos: ['michigan', 'illinois', 'nuevaInglaterra', 'virginia', 'tennessee'],
     renta: 3,
     puerto: false,
@@ -162,9 +278,11 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'nuevaInglaterra',
     nombre: 'Nueva Inglaterra',
-    x: 92,
-    y: 83,
-    contorno: [[89, 76], [98, 74], [97, 93], [84, 94]],
+    x: 90,
+    y: 77,
+    contorno: [
+      V.aMichiganNuevaInglaterra, V.aCostaAtlantico, V.neMaine, V.neCaboNorte, V.lagos,
+    ],
     vecinos: ['pensilvania'],
     renta: 3,
     puerto: true,
@@ -177,9 +295,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'nuevoMexico',
     nombre: 'Nuevo México',
-    x: 22,
-    y: 40,
-    contorno: [[6, 28], [34, 30], [33, 52], [3, 50]],
+    x: 28,
+    y: 45,
+    contorno: [
+      V.cFronteraSur, V.cNuevoMexicoArkansas, V.bNuevoMexicoArkansas, V.bCaliforniaNebraska,
+      V.bCostaPacifico, V.wCaliforniaSur,
+    ],
     vecinos: ['california', 'nebraska', 'texas', 'arkansas'],
     renta: 1,
     puerto: false,
@@ -190,9 +311,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'texas',
     nombre: 'Texas',
-    x: 33,
-    y: 20,
-    contorno: [[6, 28], [34, 30], [40, 12], [16, 6]],
+    x: 40,
+    y: 22,
+    contorno: [
+      V.gTexasPunta, V.gTexasEste, V.gTexasLuisiana, V.cTexasLuisiana,
+      V.cNuevoMexicoArkansas, V.cFronteraSur, V.gTexasOeste,
+    ],
     vecinos: ['nuevoMexico', 'arkansas', 'luisiana'],
     renta: 2,
     puerto: true,
@@ -203,9 +327,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'arkansas',
     nombre: 'Arkansas',
-    x: 52,
-    y: 43,
-    contorno: [[33, 30], [63, 33], [62, 55], [33, 52]],
+    x: 54,
+    y: 45,
+    contorno: [
+      V.cNuevoMexicoArkansas, V.cTexasLuisiana, V.cLuisianaMisisipi, V.cArkansasTennessee,
+      V.bArkansasTennessee, V.bNebraskaIllinois, V.bNuevoMexicoArkansas,
+    ],
     vecinos: ['nebraska', 'illinois', 'nuevoMexico', 'texas', 'luisiana', 'tennessee', 'misisipi'],
     renta: 2,
     puerto: false,
@@ -216,9 +343,11 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'luisiana',
     nombre: 'Luisiana',
-    x: 55,
-    y: 22,
-    contorno: [[40, 12], [63, 16], [63, 33], [34, 30]],
+    x: 60,
+    y: 26,
+    contorno: [
+      V.gTexasLuisiana, V.gDelta, V.gLuisianaMisisipi, V.cLuisianaMisisipi, V.cTexasLuisiana,
+    ],
     vecinos: ['texas', 'arkansas', 'misisipi'],
     renta: 3,
     puerto: true,
@@ -229,9 +358,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'tennessee',
     nombre: 'Tennessee',
-    x: 71,
-    y: 46,
-    contorno: [[62, 33], [82, 36], [81, 57], [62, 55]],
+    x: 76,
+    y: 47,
+    contorno: [
+      V.cArkansasTennessee, V.cMisisipiCarolinas, V.cTennesseeVirginia, V.bTennesseeVirginia,
+      V.bIllinoisPensilvania, V.bArkansasTennessee,
+    ],
     vecinos: ['illinois', 'pensilvania', 'arkansas', 'misisipi', 'virginia', 'carolinas'],
     renta: 2,
     puerto: false,
@@ -242,9 +374,12 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'misisipi',
     nombre: 'Misisipi',
-    x: 70,
-    y: 25,
-    contorno: [[63, 16], [80, 18], [82, 36], [63, 33]],
+    x: 75,
+    y: 30,
+    contorno: [
+      V.gLuisianaMisisipi, V.gMisisipiFlorida, V.gFloridaCarolinas, V.cMisisipiCarolinas,
+      V.cArkansasTennessee, V.cLuisianaMisisipi,
+    ],
     vecinos: ['luisiana', 'arkansas', 'tennessee', 'carolinas', 'florida'],
     // El algodón del delta: es el motor económico del Sur y, por estar en la
     // retaguardia profunda, lo último que se pierde. Le da al Sur algo que
@@ -258,9 +393,11 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'virginia',
     nombre: 'Virginia',
-    x: 88,
+    x: 90,
     y: 50,
-    contorno: [[81, 43], [96, 45], [95, 60], [88, 58], [81, 57]],
+    contorno: [
+      V.cTennesseeVirginia, V.cCostaAtlantico, V.bCostaAtlantico, V.bTennesseeVirginia,
+    ],
     vecinos: ['pensilvania', 'tennessee', 'carolinas'],
     renta: 3,
     puerto: false,
@@ -272,8 +409,11 @@ export const TERRITORIOS: readonly Territorio[] = [
     id: 'carolinas',
     nombre: 'las Carolinas',
     x: 88,
-    y: 33,
-    contorno: [[82, 22], [97, 26], [96, 45], [81, 43]],
+    y: 34,
+    contorno: [
+      V.gFloridaCarolinas, V.fNordeste, V.eCarolinas, V.cCostaAtlantico,
+      V.cTennesseeVirginia, V.cMisisipiCarolinas,
+    ],
     vecinos: ['virginia', 'tennessee', 'misisipi', 'florida'],
     renta: 2,
     puerto: true,
@@ -284,9 +424,11 @@ export const TERRITORIOS: readonly Territorio[] = [
   {
     id: 'florida',
     nombre: 'Florida',
-    x: 84,
-    y: 12,
-    contorno: [[80, 18], [82, 22], [97, 26], [92, 3], [80, 4]],
+    x: 86,
+    y: 15,
+    contorno: [
+      V.gMisisipiFlorida, V.fOeste, V.fPunta, V.fEste, V.fNordeste, V.gFloridaCarolinas,
+    ],
     vecinos: ['misisipi', 'carolinas'],
     renta: 2,
     puerto: true,
