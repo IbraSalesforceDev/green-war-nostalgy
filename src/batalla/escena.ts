@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { crearFigurasDeBando } from '../campana/render/figuras';
 import { ARMAS, Arma, BandoCampana, type Composicion, NOMBRE_ARMA } from '../campana/tipos';
 import { elementoIcono } from '../ui/iconos';
+import { IABatalla } from './ia';
 import {
   ANCHO_CAMPO,
   Batalla,
@@ -93,6 +94,13 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     enFuerte: opciones.enFuerte ?? false,
     semilla: opciones.semilla,
   });
+
+  // El mando de la máquina. Usa los mismos verbos que los botones de abajo: no
+  // hay nada que pueda hacer el enemigo que no puedas hacer tú.
+  const mandoEnemigo = new IABatalla(
+    batalla,
+    opciones.bandoJugador === opciones.atacante ? batalla.defensor : batalla.atacante,
+  );
 
   const escena = new THREE.Scene();
   escena.background = new THREE.Color(0x8fa9c4);
@@ -394,6 +402,9 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     desenlace: () => batalla.desenlace(),
 
     actualizar(dt: number): void {
+      // Primero decide el enemigo, luego se simula: así sus órdenes rigen este
+      // paso y no el siguiente, igual que las tuyas.
+      mandoEnemigo.actualizar(dt);
       batalla.paso(dt);
       refrescarMarcador();
       refrescarMando();

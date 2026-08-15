@@ -248,6 +248,15 @@ export class Batalla {
   /** Disparos de este tick. El render los consume y se vacían solos. */
   readonly disparos: DisparoBatalla[] = [];
 
+  /**
+   * Impactos apuntados durante el tick, pendientes de resolverse todos juntos.
+   * Se reutiliza el array: esto se vacía y se llena treinta veces por segundo.
+   */
+  private readonly impactos: Array<{ objetivo: UnidadBatalla; danio: number }> = [];
+
+  /** Orden en que se resuelven las unidades este tick. Se baraja en cada paso. */
+  private readonly orden: number[] = [];
+
   terminada = false;
   vencedor: BandoCampana = BandoCampana.NINGUNO;
   tiempo = 0;
@@ -461,7 +470,22 @@ export class Batalla {
       if (queda > 0) this.cargaRestante.set(bando, Math.max(0, queda - dt));
     }
 
-    for (const unidad of this.unidades) {
+    // El orden dentro del tick se baraja. Disparar ya es simultáneo, pero
+    // moverse y elegir presa no pueden serlo: quien actúa primero se coloca sin
+    // saber dónde acabará el otro, y el que va después sí lo sabe. Como las
+    // unidades se recorren en el orden en que se crearon y el atacante se
+    // despliega primero, ese desnivel le caía siempre al mismo bando y se
+    // acumulaba tick a tick.
+    //
+    // Se probó antes a alternar el sentido en los tics impares, que parecía la
+    // solución barata y sin azar. No lo era: en vez de cancelarse, el turno par
+    // e impar entraban en fase con la cadencia de recarga y el sesgo se disparó
+    // al otro lado —de 178 victorias del atacante a 183 del defensor sobre las
+    // mismas doscientas batallas—. Un orden sin patrón no puede entrar en fase
+    // con nada.
+    this.barajarOrden();
+    for (const indice of this.orden) {
+      const unidad = this.unidades[indice]!;
       if (unidad.estado === EstadoUnidad.MUERTA) continue;
       if (unidad.estado === EstadoUnidad.MURIENDO) {
         unidad.agonia -= dt;
@@ -474,8 +498,62 @@ export class Batalla {
       this.actuar(unidad, dt);
     }
 
+    this.aplicarDanio();
     this.separar();
     this.comprobarFinal();
+  }
+
+  /**
+   * Reordena al azar los índices de las unidades para este tick.
+   *
+   * Fisher-Yates sobre el generador de la batalla, así que sigue siendo
+   * reproducible: la misma semilla baraja igual. Reutiliza el array porque esto
+   * ocurre treinta veces por segundo.
+   */
+  private barajarOrden(): void {
+    if (this.orden.length !== this.unidades.length) {
+      this.orden.length = 0;
+      for (let i = 0; i < this.unidades.length; i++) this.orden.push(i);
+    }
+    for (let i = this.orden.length - 1; i > 0; i--) {
+      const j = this.azar.entero(0, i);
+      const t = this.orden[i]!;
+      this.orden[i] = this.orden[j]!;
+      this.orden[j] = t;
+    }
+  }
+
+  /**
+   * Aplica de golpe todo el daño del tick. Las dos líneas disparan a la vez.
+   *
+   * Antes el daño se aplicaba en el mismo instante del disparo, y como las
+   * unidades se recorren en el orden en que se crearon —y el atacante se
+   * despliega primero—, sus tropas resolvían siempre antes que las del defensor.
+   * Quien resuelve primero mata primero, y una unidad ya muerta no devuelve el
+   * fuego: era una ventaja de primer golpe sistemática, del bando atacante, en
+   * todos los tics de todas las batallas. Medida sobre doscientas batallas
+   * idénticas y sin mando, el atacante ganaba 178.
+   *
+   * Que dos ejércitos iguales no empaten es un fallo, y además de los caros: no
+   * se ve por ninguna parte, no rompe nada y decide partidas. Separando la
+   * intención del efecto, el orden dentro del tick deja de importar y una
+   * descarga puede matar a quien está disparándola —que es, de paso, lo que
+   * pasaba en una línea de fusileros—.
+   */
+  private aplicarDanio(): void {
+    for (const golpe of this.impactos) {
+      const objetivo = golpe.objetivo;
+      if (objetivo.estado === EstadoUnidad.MUERTA) continue;
+      objetivo.vida -= golpe.danio;
+      if (objetivo.vida <= 0 && objetivo.estado !== EstadoUnidad.MURIENDO) {
+        objetivo.vida = 0;
+        objetivo.estado = EstadoUnidad.MURIENDO;
+        objetivo.agonia = 0.9;
+        objetivo.objetivo = 0;
+        this.ultimaBaja = this.tiempo;
+      }
+    }
+    this.impactos.length = 0;
   }
 
   /**
@@ -592,7 +670,9 @@ export class Batalla {
     // ±20 % de dispersión: dos disparos iguales no hacen el mismo daño.
     const danio = ficha.danio * multiplicador * this.azar.rango(0.8, 1.2);
 
-    objetivo.vida -= danio;
+    // El daño no se aplica aquí: se apunta y se resuelve al final del tick, con
+    // el de todos los demás. Ver `aplicarDanio`.
+    this.impactos.push({ objetivo, danio });
     this.disparos.push({
       origenX: unidad.x,
       origenZ: unidad.z,
@@ -601,14 +681,6 @@ export class Batalla {
       arma: unidad.arma,
       bando: unidad.bando,
     });
-
-    if (objetivo.vida <= 0) {
-      objetivo.vida = 0;
-      objetivo.estado = EstadoUnidad.MURIENDO;
-      objetivo.agonia = 0.9;
-      objetivo.objetivo = 0;
-      this.ultimaBaja = this.tiempo;
-    }
   }
 
   /**

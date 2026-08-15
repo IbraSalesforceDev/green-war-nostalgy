@@ -403,4 +403,37 @@ describe('el determinismo', () => {
     };
     expect(guionar(1)).not.toBe(guionar(2));
   });
+
+  it('no le regala la batalla a nadie por el orden en que se resuelve el tick', () => {
+    // Dos ejércitos idénticos tienen que empatar a la larga. Que no lo hicieran
+    // fue el fallo más caro de esta simulación: el atacante se despliega primero,
+    // las unidades se recorrían en el orden en que se crearon y sus tropas
+    // resolvían siempre antes: mataban antes de que les respondieran. Sobre
+    // doscientas batallas iguales, el atacante ganaba 178.
+    //
+    // Se arregló por partida doble: el daño se aplica de golpe al final del tick
+    // —una descarga puede matar a quien la está disparando— y el orden de
+    // resolución se baraja, porque moverse y elegir presa no pueden ser
+    // simultáneos y alguien tiene que ir primero.
+    let ganaAtacante = 0;
+    const partidas = 120;
+    for (let semilla = 0; semilla < partidas; semilla++) {
+      const batalla = new Batalla({
+        atacante: BandoCampana.UNION,
+        composicionAtacante: [6, 3, 2],
+        composicionDefensor: [6, 3, 2],
+        bandoJugador: BandoCampana.UNION,
+        enFuerte: false,
+        semilla,
+      });
+      let vueltas = 0;
+      while (!batalla.terminada && vueltas++ < 60 * 60) batalla.paso(PASO_BATALLA);
+      if (batalla.vencedor === BandoCampana.UNION) ganaAtacante++;
+    }
+    // Con ejércitos iguales el reparto tiene que rondar la mitad. El margen es
+    // ancho a propósito: son ciento veinte batallas con azar de por medio, no una
+    // demostración. Lo que descarta es un sesgo estructural, que era de 9 a 1.
+    expect(ganaAtacante).toBeGreaterThan(partidas * 0.35);
+    expect(ganaAtacante).toBeLessThan(partidas * 0.65);
+  });
 });
