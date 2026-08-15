@@ -48,6 +48,45 @@ const ESCALA_FIGURA = 1.7;
 
 const COLOR_SELECCION = 0xffe9a8;
 
+/**
+ * Aire alrededor de lo que se encuadra.
+ *
+ * Un ejército pegado al borde de la pantalla se lee como un ejército cortado, y
+ * además no deja ver hacia dónde se mueve. Un 15 % basta para que se note que
+ * hay campo a los lados.
+ */
+const MARGEN_ENCUADRE = 1.15;
+
+/**
+ * Inclinación de la cámara según lo estrecha que sea la pantalla.
+ *
+ * En apaisado la batalla se mira casi de perfil, que es como mejor se lee: las
+ * dos líneas caen en un plano y se ve el hueco, el avance y la carga que entra.
+ *
+ * En vertical no hay margen para elegir. Meter los ochenta y cuatro de frente en
+ * una pantalla estrecha obliga a alejarse mucho, y de tan lejos la cámara casi de
+ * perfil enseña un palmo de campo abajo y todo lo demás cielo: la primera versión
+ * de este arreglo encuadraba el campo entero, sí, pero sobre una pantalla vacía.
+ * Lo que sobra es cielo, no distancia, así que en cuanto la pantalla se estrecha
+ * la cámara se empina y el suelo vuelve a llenar el encuadre.
+ *
+ * Lo que no arregla ningún ángulo: a lo ancho hay unos cuatro píxeles por unidad
+ * de campo en un móvil en vertical, así que las figuras salen pequeñas se haga lo
+ * que se haga. Se ven las líneas y sus movimientos, que es para lo que sirve el
+ * plano general; para verles la cara, apaisado.
+ */
+function inclinacionPara(aspecto: number): number {
+  const t = limitar((aspecto - 0.6) / (1.3 - 0.6), 0, 1);
+  return 1.0 + (0.4 - 1.0) * t;
+}
+
+function limitar(valor: number, minimo: number, maximo: number): number {
+  return Math.min(maximo, Math.max(minimo, valor));
+}
+
+/** Velocidades de reloj que ofrece el panel. */
+const VELOCIDADES = [1, 2, 3] as const;
+
 const ICONO_ARMA: Readonly<Record<Arma, Parameters<typeof elementoIcono>[0]>> = {
   [Arma.INFANTERIA]: 'casco',
   [Arma.CABALLERIA]: 'jinete',
@@ -59,6 +98,17 @@ export interface EscenaBatalla {
   readonly camara: THREE.PerspectiveCamera;
   readonly batalla: Batalla;
   actualizar(dt: number): void;
+  /**
+   * Cuántos pasos de simulación pide por fotograma: 1, 2 o 3.
+   *
+   * No es un `dt` multiplicado, y la diferencia importa. Alargar el paso
+   * cambiaría el resultado de la batalla —a pasos más largos las unidades se
+   * atraviesan y el fuego se resuelve en trozos más gruesos—, así que acelerar
+   * dejaría de ser una comodidad para pasar a ser una forma de jugar distinta.
+   * Repitiendo el mismo paso fijo, x3 es exactamente la misma batalla vista tres
+   * veces más deprisa.
+   */
+  readonly velocidad: number;
   redimensionar(ancho: number, alto: number): void;
   /** La batalla ha terminado y su resultado está listo para la campaña. */
   readonly terminada: boolean;
@@ -104,6 +154,11 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
 
   const escena = new THREE.Scene();
   escena.background = new THREE.Color(0x8fa9c4);
+  // La niebla se ajusta luego a la distancia de la cámara. Con los 90/190 fijos
+  // de antes, en cuanto el encuadre pedía alejarse —una pantalla estrecha pide
+  // más de doscientas cincuenta unidades— la escena entera caía más allá del
+  // fondo de niebla y se disolvía en el color del cielo: la batalla se veía como
+  // una pantalla azul vacía, y parecía un fallo de la cámara cuando era esto.
   escena.fog = new THREE.Fog(0x8fa9c4, 90, 190);
 
   const sol = new THREE.DirectionalLight(0xfff2d8, 1.5);
@@ -129,7 +184,7 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   // ejércitos, y con un suelo ajustado al campo se veía el canto del plano
   // recortado contra el cielo.
   const suelo = new THREE.Mesh(
-    new THREE.PlaneGeometry(ANCHO_CAMPO * 4, FONDO_CAMPO * 6, 1, 1),
+    new THREE.PlaneGeometry(ANCHO_CAMPO * 6, FONDO_CAMPO * 16, 1, 1),
     new THREE.MeshStandardMaterial({ color: 0x6f8f4a, roughness: 1, metalness: 0 }),
   );
   suelo.rotation.x = -Math.PI / 2;
@@ -140,9 +195,9 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   // Franjas de labranza: dan escala y hacen visible el avance de las tropas, que
   // sobre un verde liso parecería que patinan sin moverse.
   const franjas = new THREE.Group();
-  for (let i = -10; i <= 10; i++) {
+  for (let i = -24; i <= 24; i++) {
     const franja = new THREE.Mesh(
-      new THREE.PlaneGeometry(ANCHO_CAMPO * 3, 2.2),
+      new THREE.PlaneGeometry(ANCHO_CAMPO * 5, 2.2),
       new THREE.MeshStandardMaterial({ color: 0x64823f, roughness: 1 }),
     );
     franja.rotation.x = -Math.PI / 2;
@@ -228,9 +283,35 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   let cursorFogonazo = 0;
 
   // --- Cámara ---
-  const camara = new THREE.PerspectiveCamera(42, opciones.relacionAspecto, 0.5, 400);
-  let distancia = 52;
+  const camara = new THREE.PerspectiveCamera(42, opciones.relacionAspecto, 0.5, 600);
   let objetivoX = 0;
+
+  /**
+   * A qué distancia cabe un ancho dado de campo, con margen.
+   *
+   * Antes la cámara arrancaba a una distancia fija de 52 y se acercaba o alejaba
+   * después. El número estaba elegido a ojo sobre un monitor apaisado, y en
+   * cuanto la pantalla se estrechaba dejaba de valer: lo que cabe a lo ancho
+   * depende de la proporción de la pantalla, así que en un móvil los dos
+   * ejércitos empezaban fuera del encuadre, uno por cada lado. Justo al
+   * principio, que es cuando hay que decidir cómo plantear la batalla.
+   *
+   * Con esto la distancia se calcula en vez de estimarse, y sale bien en
+   * cualquier pantalla porque la proporción entra en la cuenta.
+   */
+  function distanciaParaAncho(ancho: number): number {
+    const mitadFov = (camara.fov * Math.PI) / 360;
+    // Lo que se ve de ancho por cada unidad de distancia.
+    const porUnidad = 2 * Math.tan(mitadFov) * Math.max(0.35, camara.aspect);
+    return (ancho * MARGEN_ENCUADRE) / porUnidad;
+  }
+
+  /** La distancia a la que se ve el campo entero, de un borde al otro. */
+  function distanciaDeCampoEntero(): number {
+    return distanciaParaAncho(ANCHO_CAMPO);
+  }
+
+  let distancia = distanciaDeCampoEntero();
   /**
    * Casi de perfil.
    *
@@ -245,15 +326,21 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
    * sigue leyéndose de perfil y llena el encuadre de campo, que es donde pasa
    * todo.
    */
-  const INCLINACION = 0.4;
+  let inclinacion = inclinacionPara(camara.aspect);
 
   function recolocarCamara(): void {
     camara.position.set(
       objetivoX,
-      Math.sin(INCLINACION) * distancia,
-      Math.cos(INCLINACION) * distancia,
+      Math.sin(inclinacion) * distancia,
+      Math.cos(inclinacion) * distancia,
     );
     camara.lookAt(objetivoX, 2.5, 0);
+    // La niebla vive en el fondo de la escena, no a una distancia fija: tiene que
+    // empezar más allá de la tropa y acabar más allá del campo, encuadre el que
+    // encuadre.
+    const niebla = escena.fog as THREE.Fog;
+    niebla.near = distancia * 0.9;
+    niebla.far = distancia * 2.6;
   }
   recolocarCamara();
 
@@ -347,6 +434,27 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     refrescarMando();
   });
   filaOrdenes.appendChild(botonCarga);
+
+  // Reloj de la batalla. Va en la misma fila que las órdenes y separado a la
+  // derecha: no es una orden a las tropas, es a qué ritmo lo miras.
+  let velocidad = 1;
+  const botonesVelocidad = new Map<number, HTMLButtonElement>();
+  const grupoVelocidad = document.createElement('div');
+  grupoVelocidad.className = 'gwn-batalla-velocidad';
+  for (const paso of VELOCIDADES) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'gwn-batalla-reloj';
+    boton.textContent = `×${paso}`;
+    boton.setAttribute('aria-label', `Velocidad por ${paso}`);
+    boton.addEventListener('click', () => {
+      velocidad = paso;
+      refrescarMando();
+    });
+    grupoVelocidad.appendChild(boton);
+    botonesVelocidad.set(paso, boton);
+  }
+  filaOrdenes.appendChild(grupoVelocidad);
   mando.appendChild(filaOrdenes);
   hud.appendChild(mando);
 
@@ -368,12 +476,18 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
       .some((u) => u.arma === Arma.CABALLERIA);
     botonCarga.disabled = cargando || !hayJinetes;
     botonCarga.classList.toggle('gwn-batalla-carga--en-marcha', cargando);
+    for (const [paso, boton] of botonesVelocidad) {
+      boton.classList.toggle('gwn-batalla-reloj--activo', paso === velocidad);
+    }
   }
 
   const pista = document.createElement('div');
   pista.className = 'gwn-batalla-pista';
   pista.textContent = 'Elige un arma y dile si avanza, aguanta o se retira';
-  hud.appendChild(pista);
+  // Va dentro del panel y como primer hijo, no flotando a una altura fija sobre
+  // el borde: en cuanto las órdenes se reparten en dos filas —una pantalla
+  // estrecha— una altura fija se le echa encima y tapa el botón de avanzar.
+  mando.insertBefore(pista, mando.firstChild);
   opciones.capaInterfaz.appendChild(hud);
 
   // La pista estorba en cuanto se entiende: se retira sola.
@@ -400,6 +514,10 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     },
 
     desenlace: () => batalla.desenlace(),
+
+    get velocidad() {
+      return velocidad;
+    },
 
     actualizar(dt: number): void {
       // Primero decide el enemigo, luego se simula: así sus órdenes rigen este
@@ -466,10 +584,15 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
         const centro = (izquierda + derecha) / 2;
         objetivoX += (centro - objetivoX) * Math.min(1, dt * 1.5);
 
-        // Y se aleja lo justo para que quepan, entre un mínimo que evita el
-        // plano lejanísimo del principio y un máximo que no deja verlas.
-        const anchoVisible = 2 * Math.tan((camara.fov * Math.PI) / 360) * camara.aspect;
-        const deseada = limitar(((derecha - izquierda) * 1.35) / Math.max(0.5, anchoVisible), 34, 74);
+        // Nunca más lejos que el campo entero ni más cerca de lo que hace falta
+        // para que quepan los dos ejércitos. El techo importa tanto como el
+        // suelo: sin él, la cámara se iba tan atrás que las figuras dejaban de
+        // distinguirse; sin el suelo, la tropa se salía por los lados.
+        const necesaria = distanciaParaAncho(Math.max(18, derecha - izquierda));
+        const deseada = Math.min(necesaria, distanciaDeCampoEntero());
+        // Si ni siquiera los dos ejércitos caben —pantalla estrecha—, la cámara se
+        // queda en el tope y sigue al combate en vez de alejarse hasta que no se
+        // distinga nada.
         distancia += (deseada - distancia) * Math.min(1, dt * 0.9);
         recolocarCamara();
       }
@@ -478,6 +601,12 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
     redimensionar(ancho: number, alto: number): void {
       camara.aspect = ancho / Math.max(1, alto);
       camara.updateProjectionMatrix();
+      // Al girar el móvil cambia lo que cabe a lo ancho, así que el encuadre hay
+      // que rehacerlo: si no, media batalla se queda fuera hasta el siguiente
+      // reajuste automático. Y con la proporción cambia también el ángulo.
+      inclinacion = inclinacionPara(camara.aspect);
+      distancia = Math.min(distancia, distanciaDeCampoEntero());
+      recolocarCamara();
     },
 
     liberar(): void {
@@ -488,6 +617,3 @@ export function crearEscenaBatalla(opciones: OpcionesEscenaBatalla): EscenaBatal
   };
 }
 
-function limitar(valor: number, minimo: number, maximo: number): number {
-  return Math.min(maximo, Math.max(minimo, valor));
-}

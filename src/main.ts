@@ -131,8 +131,13 @@ async function arrancar(): Promise<void> {
     alSimular: (dt) => {
       const activa = batalla;
       if (activa) {
-        // La batalla corre a su propio ritmo fijo, no al del bucle del mapa.
-        activa.actualizar(PASO_BATALLA);
+        // La batalla corre a su propio ritmo fijo, no al del bucle del mapa. El
+        // ×2 y el ×3 repiten ese mismo paso en vez de alargarlo: así acelerar
+        // solo cambia lo que tardas en verla, nunca cómo acaba.
+        for (let i = 0; i < activa.velocidad; i++) {
+          activa.actualizar(PASO_BATALLA);
+          if (activa.terminada) break;
+        }
         if (activa.terminada) terminarBatalla(activa);
         return;
       }

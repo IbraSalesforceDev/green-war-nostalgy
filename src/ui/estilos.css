@@ -1098,11 +1098,8 @@
 }
 
 .gwn-batalla-pista {
-  position: absolute;
-  bottom: calc(max(0.8rem, env(safe-area-inset-bottom)) + 5.6rem);
-  left: 50%;
-  transform: translateX(-50%);
   padding: 0.3rem 0.8rem;
+  max-width: min(92vw, 30rem);
   border-radius: 0.3rem;
   background: var(--hud-tinta-panel);
   border: 1px solid var(--hud-piedra-borde);
@@ -1132,8 +1129,14 @@
 }
 
 .gwn-batalla-armas,
+/* Se envuelve: en un móvil estrecho las tres órdenes, la carga y el reloj no
+   caben en una raya, y sin `wrap` los botones de los extremos se salían de la
+   pantalla —el de retirar por la izquierda y el ×3 por la derecha—, que son
+   justo los que hay que poder pulsar deprisa. */
 .gwn-batalla-ordenes {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 0.4rem;
 }
 
@@ -1218,6 +1221,41 @@
 /* Mientras dura la embestida, el botón late para que se vea que está en marcha. */
 .gwn-batalla-carga--en-marcha {
   animation: gwn-latido 0.5s ease-in-out infinite;
+}
+
+/* Reloj de la batalla: ×1, ×2, ×3.
+   Van juntos y más estrechos que las órdenes, y algo apartados a la derecha: no
+   son una orden a las tropas sino a qué ritmo se mira, y esa diferencia tiene
+   que verse antes de leer los botones. */
+.gwn-batalla-velocidad {
+  display: flex;
+  gap: 0.2rem;
+  margin-left: auto;
+}
+
+.gwn-batalla-reloj {
+  min-height: var(--hud-toque);
+  min-width: 2.1rem;
+  padding: 0 0.35rem;
+  border-radius: 0.35rem;
+  border: 2px solid var(--hud-piedra-borde);
+  background: linear-gradient(180deg, var(--hud-piedra-clara), var(--hud-piedra-oscura));
+  color: var(--hud-pergamino-clara);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: clamp(0.68rem, 2.2vw, 0.8rem);
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+
+.gwn-batalla-reloj--activo {
+  background: linear-gradient(180deg, #f0cf7a 0%, #d29c30 45%, #8f6416 100%);
+  color: #2b1d0e;
+  border-color: var(--hud-oro);
+}
+
+.gwn-batalla-reloj:active {
+  transform: translateY(1px) scale(0.97);
 }
 
 .gwn-batalla-orden:active:not(:disabled),
